@@ -1,0 +1,31 @@
+.app {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+.task-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-row {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #d8d8dc);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.task-title {
+  font-weight: 600;
+}
+
+.task-caption {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #6b6b6f;
+}
