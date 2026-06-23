@@ -7,18 +7,20 @@ for the architecture and phased roadmap.
 
 ## Status
 
-Phase 1 — local CRUD + the scheduler. The native app now persists tasks to a
-local SQLite store and schedules real nag notifications: it pre-schedules a
-burst of local notifications per task (so they keep firing while the app is
-closed), cancels a task's remaining nags when it's completed, and respects the
-64-notification iOS budget across all tasks. The notification-planning math
-lives in `@alarmed/core` with unit tests; the Expo app wires it to
-`expo-sqlite` + `expo-notifications`. See `apps/mobile/README.md` for the
-on-device test plan.
+Phase 1 — local CRUD + the scheduler, on both clients. Both apps persist
+tasks to a local store and schedule real nag notifications: each pre-arms a
+budget-respecting burst per task, cancels a task's remaining nags when it's
+completed, and never exceeds the shared notification budget. The
+notification-planning math lives in `@alarmed/core` with unit tests; the
+Expo app wires it to `expo-sqlite` + `expo-notifications`, and the PWA wires
+the same plan to `localStorage` + the browser Notification API. Both UIs are
+built from the same `@alarmed/ui` tokens, so they look and behave the same.
 
-The web PWA still renders the hardcoded sample list (its turn is Phase 4), and
-sync to Supabase is Phase 3. No notification action buttons or escalation yet
-(Phase 2).
+The native app's burst survives a force-close (the OS owns the schedule); the
+PWA's nags only fire while its tab/window stays open, since closing that gap
+needs a push backend. See `apps/mobile/README.md` and `apps/web/README.md`
+for each platform's specifics. Sync to Supabase is Phase 3. No notification
+action buttons or escalation yet (Phase 2).
 
 ## Structure
 
