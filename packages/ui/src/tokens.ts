@@ -9,6 +9,7 @@ export const colors = {
   textPrimary: "#000000",
   textSecondary: "#6B6B6F",
   accent: "#34A853",
+  onAccent: "#FFFFFF",
   danger: "#D92D20",
   border: "#D8D8DC",
 } as const;
