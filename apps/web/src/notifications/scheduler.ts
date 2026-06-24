@@ -1,4 +1,4 @@
-import { planNagNotifications, type Task } from "@alarmed/core";
+import { buildNotificationId, planNagNotifications, type CopyResult, type Task } from "@alarmed/core";
 
 /**
  * The web counterpart to `apps/mobile/src/notifications/scheduler.ts`. Both
@@ -57,4 +57,30 @@ export async function rescheduleAllNotifications(
   }
 
   return { scheduledCount: planned.length };
+}
+
+/**
+ * Best-effort overwrite of just the immediate next occurrence's copy, used
+ * after a snooze once the nag-ai proxy (or its template fallback) returns a
+ * line. Mirrors `apps/mobile/src/notifications/scheduler.ts`'s
+ * `overlayNextOccurrenceCopy`, replacing the timer under the same
+ * `nag:{taskId}:0` identifier.
+ */
+export async function overlayNextOccurrenceCopy(
+  taskId: string,
+  fireAt: Date,
+  copy: CopyResult
+): Promise<void> {
+  const identifier = buildNotificationId(taskId, 0);
+  const existing = timers.get(identifier);
+  if (existing) clearTimeout(existing);
+
+  const delay = Math.max(0, fireAt.getTime() - Date.now());
+  const timer = setTimeout(() => {
+    timers.delete(identifier);
+    if (Notification.permission === "granted") {
+      new Notification(copy.title, { body: copy.body, tag: identifier });
+    }
+  }, delay);
+  timers.set(identifier, timer);
 }

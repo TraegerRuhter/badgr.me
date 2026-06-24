@@ -1,4 +1,4 @@
-import type { DeviceOrigin, EscalationMode, Task } from "@alarmed/core";
+import { applySnooze, type DeviceOrigin, type EscalationMode, type Task } from "@alarmed/core";
 import * as Crypto from "expo-crypto";
 import * as SQLite from "expo-sqlite";
 
@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   repeat_rule TEXT,
   priority INTEGER NOT NULL DEFAULT 0,
   device_origin TEXT NOT NULL,
-  deleted_at TEXT
+  deleted_at TEXT,
+  snooze_count INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS tasks_fire_at_idx ON tasks (fire_at);
 `;
@@ -67,6 +68,7 @@ interface TaskRow {
   priority: number;
   device_origin: string;
   deleted_at: string | null;
+  snooze_count: number;
 }
 
 function rowToTask(row: TaskRow): Task {
@@ -87,6 +89,7 @@ function rowToTask(row: TaskRow): Task {
     priority: row.priority,
     deviceOrigin: row.device_origin as DeviceOrigin,
     deletedAt: row.deleted_at,
+    snoozeCount: row.snooze_count,
   };
 }
 
@@ -114,6 +117,12 @@ export async function listTasks(): Promise<Task[]> {
   return rows.map(rowToTask);
 }
 
+export async function getTask(id: string): Promise<Task | null> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<TaskRow>("SELECT * FROM tasks WHERE id = ?", [id]);
+  return row ? rowToTask(row) : null;
+}
+
 export async function createTask(input: NewTaskInput): Promise<Task> {
   const db = await getDb();
   const now = new Date().toISOString();
@@ -134,14 +143,16 @@ export async function createTask(input: NewTaskInput): Promise<Task> {
     priority: input.priority ?? 0,
     deviceOrigin: "mobile",
     deletedAt: null,
+    snoozeCount: 0,
   };
 
   await db.runAsync(
     `INSERT INTO tasks (
        id, title, notes, created_at, updated_at, fire_at,
        nag_interval_seconds, nag_max_count, nag_until, escalation_mode,
-       completed_at, dismissed_at, repeat_rule, priority, device_origin, deleted_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       completed_at, dismissed_at, repeat_rule, priority, device_origin, deleted_at,
+       snooze_count
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       task.id,
       task.title,
@@ -159,6 +170,7 @@ export async function createTask(input: NewTaskInput): Promise<Task> {
       task.priority,
       task.deviceOrigin,
       task.deletedAt,
+      task.snoozeCount,
     ]
   );
 
@@ -182,6 +194,30 @@ export async function reopenTask(id: string): Promise<void> {
     "UPDATE tasks SET completed_at = NULL, updated_at = ? WHERE id = ?",
     [now, id]
   );
+}
+
+/**
+ * Pushes a task's fire time out and bumps its snooze count (spec §3.4, escalation).
+ * Returns the updated task so the caller can re-arm notifications and, best-effort,
+ * ask the nag-ai proxy for a fresher line for the immediate next occurrence.
+ */
+export async function snoozeTask(
+  id: string,
+  options?: { snoozeSeconds?: number; now?: Date }
+): Promise<Task | null> {
+  const task = await getTask(id);
+  if (!task) return null;
+
+  const { fireAt, snoozeCount } = applySnooze(task, options);
+  const updatedAt = new Date().toISOString();
+
+  const db = await getDb();
+  await db.runAsync(
+    "UPDATE tasks SET fire_at = ?, snooze_count = ?, updated_at = ? WHERE id = ?",
+    [fireAt.toISOString(), snoozeCount, updatedAt, id]
+  );
+
+  return { ...task, fireAt: fireAt.toISOString(), snoozeCount, updatedAt };
 }
 
 /** Soft delete so the removal can later propagate through sync (spec §5). */

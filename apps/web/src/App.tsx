@@ -1,4 +1,4 @@
-import { planNagNotifications, type Task } from "@alarmed/core";
+import { planNagNotifications, type EscalationMode, type Task } from "@alarmed/core";
 import { colors, spacing, typography } from "@alarmed/ui";
 import {
   useCallback,
@@ -8,6 +8,7 @@ import {
   type CSSProperties,
 } from "react";
 
+import { nagCopyGenerator } from "./copy/nagAi";
 import {
   completeTask,
   createTask,
@@ -15,9 +16,11 @@ import {
   initDatabase,
   listTasks,
   reopenTask,
+  snoozeTask,
   type NewTaskInput,
 } from "./db/database";
 import {
+  overlayNextOccurrenceCopy,
   rescheduleAllNotifications,
   requestNotificationPermissions,
 } from "./notifications/scheduler";
@@ -28,6 +31,7 @@ interface Preset {
   firstDelayMs: number;
   intervalSeconds: number;
   nagMaxCount: number;
+  escalationMode?: EscalationMode;
 }
 
 // Quick-add presets — same set as the native app's, so a task built from a
@@ -35,6 +39,13 @@ interface Preset {
 const PRESETS: Preset[] = [
   { label: "10s · 30s × 5", firstDelayMs: 10_000, intervalSeconds: 30, nagMaxCount: 5 },
   { label: "1m · 1h × 6", firstDelayMs: 60_000, intervalSeconds: 3600, nagMaxCount: 6 },
+  {
+    label: "Shrink · 10s × 6",
+    firstDelayMs: 10_000,
+    intervalSeconds: 60,
+    nagMaxCount: 6,
+    escalationMode: "shrink",
+  },
 ];
 
 function formatDateTime(iso: string): string {
@@ -112,11 +123,29 @@ export default function App() {
         fireAt: new Date(Date.now() + preset.firstDelayMs).toISOString(),
         nagIntervalSeconds: preset.intervalSeconds,
         nagMaxCount: preset.nagMaxCount,
+        escalationMode: preset.escalationMode,
       };
       setTitle("");
       void runMutation(() => createTask(input));
     },
     [title, runMutation]
+  );
+
+  const handleSnooze = useCallback(
+    (taskId: string) =>
+      runMutation(async () => {
+        const updated = await snoozeTask(taskId);
+        if (!updated || !nagCopyGenerator) return;
+        // Best-effort: the resync above already re-armed this occurrence with
+        // the (always-correct, offline-safe) template-ladder line. If the
+        // nag-ai proxy is reachable, overwrite just that one notification
+        // once a fresher line comes back — never block the resync on it.
+        void nagCopyGenerator
+          .generate({ task: updated, level: updated.snoozeCount })
+          .then((copy) => overlayNextOccurrenceCopy(taskId, new Date(updated.fireAt), copy))
+          .catch(() => {});
+      }),
+    [runMutation]
   );
 
   if (loading) {
@@ -180,6 +209,7 @@ export default function App() {
                 onComplete={() => runMutation(() => completeTask(task.id))}
                 onReopen={() => runMutation(() => reopenTask(task.id))}
                 onDelete={() => runMutation(() => deleteTask(task.id))}
+                onSnooze={() => handleSnooze(task.id)}
               />
             ))
           )}
@@ -195,9 +225,10 @@ interface TaskRowProps {
   onComplete: () => void;
   onReopen: () => void;
   onDelete: () => void;
+  onSnooze: () => void;
 }
 
-function TaskRow({ task, pendingCount, onComplete, onReopen, onDelete }: TaskRowProps) {
+function TaskRow({ task, pendingCount, onComplete, onReopen, onDelete, onSnooze }: TaskRowProps) {
   const done = task.completedAt != null;
   return (
     <li style={styles.row}>
@@ -217,9 +248,14 @@ function TaskRow({ task, pendingCount, onComplete, onReopen, onDelete }: TaskRow
             <span style={styles.actionText}>Reopen</span>
           </button>
         ) : (
-          <button type="button" style={styles.action} onClick={onComplete}>
-            <span style={styles.actionText}>Done</span>
-          </button>
+          <>
+            <button type="button" style={styles.action} onClick={onComplete}>
+              <span style={styles.actionText}>Done</span>
+            </button>
+            <button type="button" style={styles.action} onClick={onSnooze}>
+              <span style={styles.actionText}>Snooze</span>
+            </button>
+          </>
         )}
         <button type="button" style={styles.action} onClick={onDelete}>
           <span style={{ ...styles.actionText, ...styles.deleteText }}>Delete</span>

@@ -23,6 +23,7 @@ export const sampleTasks: Task[] = [
     priority: 1,
     deviceOrigin: "mobile",
     deletedAt: null,
+    snoozeCount: 0,
   },
   {
     id: "22222222-2222-4222-8222-222222222222",
@@ -41,6 +42,7 @@ export const sampleTasks: Task[] = [
     priority: 2,
     deviceOrigin: "web",
     deletedAt: null,
+    snoozeCount: 0,
   },
   {
     id: "33333333-3333-4333-8333-333333333333",
@@ -59,5 +61,6 @@ export const sampleTasks: Task[] = [
     priority: 0,
     deviceOrigin: "mobile",
     deletedAt: null,
+    snoozeCount: 0,
   },
 ];

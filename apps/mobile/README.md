@@ -21,8 +21,26 @@ reliable local notifications.
   `planNagNotifications` / `allocateNotificationBudget` functions in
   `@alarmed/core`, unit-tested there.
 
-Out of scope until later phases: notification action buttons + escalation
-(Phase 2), Supabase sync (Phase 3).
+## Phase 2 scope
+
+- **Done / Snooze notification actions** (`setupNotificationCategories` in
+  `src/notifications/scheduler.ts`) — both buttons set `opensAppToForeground:
+  true`, deliberately: the response listener only runs if the app gets a
+  chance to, and these nags are designed to survive a force-closed app, so
+  the action has to be able to wake it.
+- **Escalating copy** — every pre-scheduled notification's body comes from
+  `generateTemplateCopy` in `@alarmed/core` (a deterministic, Carrot-style
+  phrase-bank ladder keyed on `task.snoozeCount + occurrenceIndex`), so the
+  tone gets sharper the longer a task sits, with zero network dependency.
+- **AI-rewritten copy, best-effort** — tapping Snooze (`handleSnooze` in
+  `App.tsx`) persists the new `fireAt`/`snoozeCount`, re-arms the whole burst
+  from the template ladder (always correct, works offline), and — only if
+  `EXPO_PUBLIC_NAG_AI_ENDPOINT` is set — asks the `services/nag-ai` proxy for
+  a fresher line and overwrites just the immediate next occurrence once it
+  replies. The proxy holds the Anthropic key server-side; nothing here ever
+  does.
+
+Out of scope until later phases: Supabase sync (Phase 3).
 
 ## Running it
 
@@ -30,6 +48,18 @@ Out of scope until later phases: notification action buttons + escalation
 pnpm --filter @alarmed/mobile start      # Metro dev server
 pnpm --filter @alarmed/mobile typecheck  # tsc --noEmit
 ```
+
+To enable AI-rewritten snooze copy, point the app at a running
+`services/nag-ai` instance (see its README) via Expo's client-readable env
+vars, e.g. in `apps/mobile/.env.local`:
+
+```
+EXPO_PUBLIC_NAG_AI_ENDPOINT=https://your-proxy.example.com/v1/nag-copy
+EXPO_PUBLIC_NAG_AI_SHARED_SECRET=topsecret   # optional, must match the proxy
+```
+
+Leave `EXPO_PUBLIC_NAG_AI_ENDPOINT` unset to skip the AI step entirely and
+rely solely on the template ladder.
 
 **Expo Go is not enough to test the nag.** Scheduled local notifications and
 `expo-sqlite` need a real build. Per the spec's no-Mac pipeline (§7), use EAS:
@@ -54,6 +84,10 @@ surviving a force-close. On a real build:
    stops.
 6. (Budget) Add several aggressive nags at once and confirm the total armed
    count never exceeds 60 — the scheduler caps the global budget.
+7. (Phase 2) Tap **Snooze** — either the in-app button or the notification's
+   action button — a few times in a row on the same task. Each tap should
+   push `fireAt` out and the next fired notification's body should read
+   noticeably more annoyed than the last, per the escalation ladder.
 
 ## Known limits (spec §11)
 

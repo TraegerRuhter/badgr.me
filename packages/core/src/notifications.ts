@@ -1,3 +1,4 @@
+import { generateTemplateCopy } from "./copy";
 import { allocateNotificationBudget, type SchedulableTask } from "./nag";
 import type { Task } from "./types";
 
@@ -90,23 +91,17 @@ export function planNagNotifications(
     const task = tasksById.get(burst.taskId);
     if (!task) continue;
     burst.fireTimes.forEach((fireAt, index) => {
+      const copy = generateTemplateCopy(task, task.snoozeCount + index);
       planned.push({
         identifier: buildNotificationId(task.id, index),
         taskId: task.id,
         index,
         fireAt,
-        title: task.title,
-        body: notificationBody(task),
+        title: copy.title,
+        body: copy.body,
       });
     });
   }
 
   return planned;
-}
-
-function notificationBody(task: Task): string {
-  const notes = task.notes?.trim();
-  return notes && notes.length > 0
-    ? notes
-    : "Still on your list — tap to deal with it.";
 }

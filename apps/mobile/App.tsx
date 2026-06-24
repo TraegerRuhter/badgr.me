@@ -1,6 +1,7 @@
-import { planNagNotifications, type Task } from "@alarmed/core";
+import { parseNotificationId, planNagNotifications, type EscalationMode, type Task } from "@alarmed/core";
 import { colors, spacing, typography } from "@alarmed/ui";
 import { StatusBar } from "expo-status-bar";
+import * as Notifications from "expo-notifications";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -12,6 +13,7 @@ import {
   View,
 } from "react-native";
 
+import { nagCopyGenerator } from "./src/copy/nagAi";
 import {
   completeTask,
   createTask,
@@ -19,13 +21,18 @@ import {
   initDatabase,
   listTasks,
   reopenTask,
+  snoozeTask,
   type NewTaskInput,
 } from "./src/db/database";
 import {
   configureNotificationHandler,
   ensureAndroidChannel,
+  NAG_ACTION_DONE,
+  NAG_ACTION_SNOOZE,
+  overlayNextOccurrenceCopy,
   rescheduleAllNotifications,
   requestNotificationPermissions,
+  setupNotificationCategories,
 } from "./src/notifications/scheduler";
 
 configureNotificationHandler();
@@ -35,13 +42,22 @@ interface Preset {
   firstDelayMs: number;
   intervalSeconds: number;
   nagMaxCount: number;
+  escalationMode?: EscalationMode;
 }
 
 // Quick-add presets. The fast one exists to actually prove the nag mechanic on
-// device in under three minutes; the second mirrors the spec's "every 1h, 6×".
+// device in under three minutes; the second mirrors the spec's "every 1h, 6×";
+// the third proves out "shrink" escalation (interval halves each fire) fast.
 const PRESETS: Preset[] = [
   { label: "10s · 30s × 5", firstDelayMs: 10_000, intervalSeconds: 30, nagMaxCount: 5 },
   { label: "1m · 1h × 6", firstDelayMs: 60_000, intervalSeconds: 3600, nagMaxCount: 6 },
+  {
+    label: "Shrink · 10s × 6",
+    firstDelayMs: 10_000,
+    intervalSeconds: 60,
+    nagMaxCount: 6,
+    escalationMode: "shrink",
+  },
 ];
 
 function formatDateTime(iso: string): string {
@@ -85,6 +101,7 @@ export default function App() {
       try {
         await initDatabase();
         await ensureAndroidChannel();
+        await setupNotificationCategories();
         const granted = await requestNotificationPermissions();
         if (cancelled) return;
         setPermissionGranted(granted);
@@ -120,12 +137,45 @@ export default function App() {
         fireAt: new Date(Date.now() + preset.firstDelayMs).toISOString(),
         nagIntervalSeconds: preset.intervalSeconds,
         nagMaxCount: preset.nagMaxCount,
+        escalationMode: preset.escalationMode,
       };
       setTitle("");
       void runMutation(() => createTask(input));
     },
     [title, runMutation]
   );
+
+  const handleSnooze = useCallback(
+    (taskId: string) =>
+      runMutation(async () => {
+        const updated = await snoozeTask(taskId);
+        if (!updated || !nagCopyGenerator) return;
+        // Best-effort: the resync above already re-armed this occurrence with
+        // the (always-correct, offline-safe) template-ladder line. If the
+        // nag-ai proxy is reachable, overwrite just that one notification
+        // once a fresher line comes back — never block the resync on it.
+        void nagCopyGenerator
+          .generate({ task: updated, level: updated.snoozeCount })
+          .then((copy) => overlayNextOccurrenceCopy(taskId, new Date(updated.fireAt), copy))
+          .catch(() => {});
+      }),
+    [runMutation]
+  );
+
+  useEffect(() => {
+    const subscription = Notifications.addNotificationResponseReceivedListener(
+      (response) => {
+        const parsed = parseNotificationId(response.notification.request.identifier);
+        if (!parsed) return;
+        if (response.actionIdentifier === NAG_ACTION_DONE) {
+          void runMutation(() => completeTask(parsed.taskId));
+        } else if (response.actionIdentifier === NAG_ACTION_SNOOZE) {
+          void handleSnooze(parsed.taskId);
+        }
+      }
+    );
+    return () => subscription.remove();
+  }, [runMutation, handleSnooze]);
 
   if (loading) {
     return (
@@ -189,6 +239,7 @@ export default function App() {
             onComplete={() => runMutation(() => completeTask(item.id))}
             onReopen={() => runMutation(() => reopenTask(item.id))}
             onDelete={() => runMutation(() => deleteTask(item.id))}
+            onSnooze={() => handleSnooze(item.id)}
           />
         )}
       />
@@ -203,9 +254,10 @@ interface TaskRowProps {
   onComplete: () => void;
   onReopen: () => void;
   onDelete: () => void;
+  onSnooze: () => void;
 }
 
-function TaskRow({ task, pendingCount, onComplete, onReopen, onDelete }: TaskRowProps) {
+function TaskRow({ task, pendingCount, onComplete, onReopen, onDelete, onSnooze }: TaskRowProps) {
   const done = task.completedAt != null;
   return (
     <View style={styles.row}>
@@ -223,9 +275,14 @@ function TaskRow({ task, pendingCount, onComplete, onReopen, onDelete }: TaskRow
             <Text style={styles.actionText}>Reopen</Text>
           </Pressable>
         ) : (
-          <Pressable style={styles.action} onPress={onComplete}>
-            <Text style={styles.actionText}>Done</Text>
-          </Pressable>
+          <>
+            <Pressable style={styles.action} onPress={onComplete}>
+              <Text style={styles.actionText}>Done</Text>
+            </Pressable>
+            <Pressable style={styles.action} onPress={onSnooze}>
+              <Text style={styles.actionText}>Snooze</Text>
+            </Pressable>
+          </>
         )}
         <Pressable style={styles.action} onPress={onDelete}>
           <Text style={[styles.actionText, styles.deleteText]}>Delete</Text>

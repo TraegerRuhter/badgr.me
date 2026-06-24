@@ -1,4 +1,4 @@
-import type { EscalationMode, Task } from "@alarmed/core";
+import { applySnooze, type EscalationMode, type Task } from "@alarmed/core";
 
 /**
  * Local persistence — the web counterpart to
@@ -74,6 +74,7 @@ export async function createTask(input: NewTaskInput): Promise<Task> {
     priority: input.priority ?? 0,
     deviceOrigin: "web",
     deletedAt: null,
+    snoozeCount: 0,
   };
 
   const tasks = readAll();
@@ -102,6 +103,32 @@ export async function reopenTask(id: string): Promise<void> {
   task.completedAt = null;
   task.updatedAt = now;
   writeAll(tasks);
+}
+
+export async function getTask(id: string): Promise<Task | null> {
+  return readAll().find((t) => t.id === id) ?? null;
+}
+
+/**
+ * Pushes a task's fire time out and bumps its snooze count (spec §3.4,
+ * escalation) — the web counterpart to `apps/mobile/src/db/database.ts`'s
+ * `snoozeTask`.
+ */
+export async function snoozeTask(
+  id: string,
+  options?: { snoozeSeconds?: number; now?: Date }
+): Promise<Task | null> {
+  const tasks = readAll();
+  const task = tasks.find((t) => t.id === id);
+  if (!task) return null;
+
+  const { fireAt, snoozeCount } = applySnooze(task, options);
+  task.fireAt = fireAt.toISOString();
+  task.snoozeCount = snoozeCount;
+  task.updatedAt = new Date().toISOString();
+  writeAll(tasks);
+
+  return task;
 }
 
 /** Soft delete so the removal can later propagate through sync (spec §5). */

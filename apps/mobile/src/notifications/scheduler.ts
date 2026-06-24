@@ -1,7 +1,9 @@
 import {
+  buildNotificationId,
   isNagNotificationId,
   parseNotificationId,
   planNagNotifications,
+  type CopyResult,
   type Task,
 } from "@alarmed/core";
 import * as Notifications from "expo-notifications";
@@ -18,6 +20,33 @@ import { Platform } from "react-native";
  */
 
 const ANDROID_CHANNEL_ID = "nags";
+
+// expo-notifications forbids ":" and "-" in category identifiers.
+const NAG_CATEGORY_ID = "nagActions";
+export const NAG_ACTION_DONE = "done";
+export const NAG_ACTION_SNOOZE = "snooze";
+
+/**
+ * Registers the Done/Snooze action buttons. `opensAppToForeground: true` on
+ * both is deliberate, not the default Carrot-ish "fire and forget" UX:
+ * iOS only delivers the action to our JS listener if the app gets a chance to
+ * run, and these nags are designed to survive a fully force-closed app — so
+ * the action has to be able to wake it.
+ */
+export async function setupNotificationCategories(): Promise<void> {
+  await Notifications.setNotificationCategoryAsync(NAG_CATEGORY_ID, [
+    {
+      identifier: NAG_ACTION_DONE,
+      buttonTitle: "Done",
+      options: { opensAppToForeground: true },
+    },
+    {
+      identifier: NAG_ACTION_SNOOZE,
+      buttonTitle: "Snooze",
+      options: { opensAppToForeground: true },
+    },
+  ]);
+}
 
 /** Show the nag even when the app is in the foreground. */
 export function configureNotificationHandler(): void {
@@ -101,6 +130,7 @@ export async function rescheduleAllNotifications(
           title: p.title,
           body: p.body,
           sound: "default",
+          categoryIdentifier: NAG_CATEGORY_ID,
         },
         trigger,
       });
@@ -108,6 +138,36 @@ export async function rescheduleAllNotifications(
   );
 
   return { scheduledCount: planned.length };
+}
+
+/**
+ * Best-effort overwrite of just the immediate next occurrence's copy, used
+ * after a snooze once the nag-ai proxy (or its template fallback) returns a
+ * line. Scheduling under the same `nag:{taskId}:0` identifier replaces
+ * whatever the template-ladder resync already armed for that occurrence.
+ */
+export async function overlayNextOccurrenceCopy(
+  taskId: string,
+  fireAt: Date,
+  copy: CopyResult
+): Promise<void> {
+  const trigger: Notifications.DateTriggerInput = {
+    type: Notifications.SchedulableTriggerInputTypes.DATE,
+    date: fireAt,
+  };
+  if (Platform.OS === "android") {
+    trigger.channelId = ANDROID_CHANNEL_ID;
+  }
+  await Notifications.scheduleNotificationAsync({
+    identifier: buildNotificationId(taskId, 0),
+    content: {
+      title: copy.title,
+      body: copy.body,
+      sound: "default",
+      categoryIdentifier: NAG_CATEGORY_ID,
+    },
+    trigger,
+  });
 }
 
 /** How many nag notifications are currently armed on the device (for debugging). */
