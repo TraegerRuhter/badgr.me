@@ -7,28 +7,43 @@ for the architecture and phased roadmap.
 
 ## Status
 
-Phase 1 — local CRUD + the scheduler. The native app now persists tasks to a
-local SQLite store and schedules real nag notifications: it pre-schedules a
-burst of local notifications per task (so they keep firing while the app is
-closed), cancels a task's remaining nags when it's completed, and respects the
-64-notification iOS budget across all tasks. The notification-planning math
-lives in `@alarmed/core` with unit tests; the Expo app wires it to
-`expo-sqlite` + `expo-notifications`. See `apps/mobile/README.md` for the
-on-device test plan.
+Phase 1 (local CRUD + the scheduler) and Phase 2 (actions + escalation) are
+both done, on both clients. Each app persists tasks to a local store and
+schedules real nag notifications: each pre-arms a budget-respecting burst per
+task, cancels a task's remaining nags when it's completed, and never exceeds
+the shared notification budget. The notification-planning math lives in
+`@alarmed/core` with unit tests; the Expo app wires it to `expo-sqlite` +
+`expo-notifications`, and the PWA wires the same plan to `localStorage` + the
+browser Notification API. Both UIs are built from the same `@alarmed/ui`
+tokens, so they look and behave the same.
 
-The web PWA still renders the hardcoded sample list (its turn is Phase 4), and
-sync to Supabase is Phase 3. No notification action buttons or escalation yet
-(Phase 2).
+The native app's burst survives a force-close (the OS owns the schedule); the
+PWA's nags only fire while its tab/window stays open, since closing that gap
+needs a push backend. See `apps/mobile/README.md` and `apps/web/README.md`
+for each platform's specifics. Sync to Supabase is Phase 3.
+
+Phase 2 adds Done/Snooze actions and escalating nag copy: every pre-scheduled
+notification's body comes from a deterministic, Carrot-style phrase-bank
+ladder in `@alarmed/core` (`generateTemplateCopy`) that sharpens with each
+snooze, and snoozing best-effort asks `services/nag-ai` — a thin proxy that
+holds the Anthropic key server-side, never in a client bundle — for a
+fresher AI-rewritten line for just the immediate next occurrence, always
+falling back to the template ladder offline or on any failure. Mobile gets
+real OS-level notification action buttons (`expo-notifications` categories);
+the PWA uses in-page Done/Snooze buttons instead, since its `generateSW`
+service-worker strategy can't hook `notificationclick`.
 
 ## Structure
 
 ```
 packages/
-  core/   shared types, nag math, notification planning, validation, fixtures
+  core/   shared types, nag math, notification planning, copy/escalation, validation, fixtures
   ui/     shared design tokens (colors, spacing, typography)
 apps/
   mobile/ Expo (React Native) app — SQLite store + notification scheduler
   web/    Vite React PWA
+services/
+  nag-ai/ proxy holding the Anthropic key server-side; rewrites one nag line per request
 supabase/ schema + RLS migrations (see supabase/README.md to apply)
 ```
 

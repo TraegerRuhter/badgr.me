@@ -1,30 +1,404 @@
-import { sampleTasks, type Task } from "@alarmed/core";
+import { planNagNotifications, type EscalationMode, type Task } from "@alarmed/core";
+import { colors, spacing, typography } from "@alarmed/ui";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+} from "react";
+
+import { nagCopyGenerator } from "./copy/nagAi";
+import {
+  completeTask,
+  createTask,
+  deleteTask,
+  initDatabase,
+  listTasks,
+  reopenTask,
+  snoozeTask,
+  type NewTaskInput,
+} from "./db/database";
+import {
+  overlayNextOccurrenceCopy,
+  rescheduleAllNotifications,
+  requestNotificationPermissions,
+} from "./notifications/scheduler";
 import "./App.css";
 
-function formatFireAt(task: Task) {
-  return new Date(task.fireAt).toLocaleString();
+interface Preset {
+  label: string;
+  firstDelayMs: number;
+  intervalSeconds: number;
+  nagMaxCount: number;
+  escalationMode?: EscalationMode;
 }
 
-function TaskRow({ task }: { task: Task }) {
+// Quick-add presets — same set as the native app's, so a task built from a
+// given preset behaves identically on either platform.
+const PRESETS: Preset[] = [
+  { label: "10s · 30s × 5", firstDelayMs: 10_000, intervalSeconds: 30, nagMaxCount: 5 },
+  { label: "1m · 1h × 6", firstDelayMs: 60_000, intervalSeconds: 3600, nagMaxCount: 6 },
+  {
+    label: "Shrink · 10s × 6",
+    firstDelayMs: 10_000,
+    intervalSeconds: 60,
+    nagMaxCount: 6,
+    escalationMode: "shrink",
+  },
+];
+
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString();
+}
+
+function formatInterval(seconds: number): string {
+  if (seconds % 3600 === 0) return `${seconds / 3600}h`;
+  if (seconds % 60 === 0) return `${seconds / 60}m`;
+  return `${seconds}s`;
+}
+
+export default function App() {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [title, setTitle] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [permissionGranted, setPermissionGranted] = useState<boolean | null>(null);
+  const [armedCount, setArmedCount] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+
+  // Pending notifications grouped by task, derived from the same pure planner
+  // the scheduler uses — so the counts shown match what's actually armed.
+  const plannedByTask = useMemo(() => {
+    const grouped = new Map<string, number>();
+    for (const planned of planNagNotifications(tasks)) {
+      grouped.set(planned.taskId, (grouped.get(planned.taskId) ?? 0) + 1);
+    }
+    return grouped;
+  }, [tasks]);
+
+  const syncFromDb = useCallback(async () => {
+    const loaded = await listTasks();
+    const { scheduledCount } = await rescheduleAllNotifications(loaded);
+    setTasks(loaded);
+    setArmedCount(scheduledCount);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await initDatabase();
+        const granted = await requestNotificationPermissions();
+        if (cancelled) return;
+        setPermissionGranted(granted);
+        await syncFromDb();
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [syncFromDb]);
+
+  const runMutation = useCallback(
+    async (mutate: () => Promise<unknown>) => {
+      try {
+        setError(null);
+        await mutate();
+        await syncFromDb();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [syncFromDb]
+  );
+
+  const addPreset = useCallback(
+    (preset: Preset) => {
+      const input: NewTaskInput = {
+        title: title.trim() || "Reminder",
+        fireAt: new Date(Date.now() + preset.firstDelayMs).toISOString(),
+        nagIntervalSeconds: preset.intervalSeconds,
+        nagMaxCount: preset.nagMaxCount,
+        escalationMode: preset.escalationMode,
+      };
+      setTitle("");
+      void runMutation(() => createTask(input));
+    },
+    [title, runMutation]
+  );
+
+  const handleSnooze = useCallback(
+    (taskId: string) =>
+      runMutation(async () => {
+        const updated = await snoozeTask(taskId);
+        if (!updated || !nagCopyGenerator) return;
+        // Best-effort: the resync above already re-armed this occurrence with
+        // the (always-correct, offline-safe) template-ladder line. If the
+        // nag-ai proxy is reachable, overwrite just that one notification
+        // once a fresher line comes back — never block the resync on it.
+        void nagCopyGenerator
+          .generate({ task: updated, level: updated.snoozeCount })
+          .then((copy) => overlayNextOccurrenceCopy(taskId, new Date(updated.fireAt), copy))
+          .catch(() => {});
+      }),
+    [runMutation]
+  );
+
+  if (loading) {
+    return (
+      <div style={styles.page}>
+        <div style={styles.center}>
+          <div className="spinner" style={{ color: colors.accent }} />
+          <p style={styles.caption}>Opening local store…</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <li className="task-row">
-      <div className="task-title">{task.title}</div>
-      <div className="task-caption">
-        Fires {formatFireAt(task)} · every {task.nagIntervalSeconds}s
+    <div style={styles.page}>
+      <div style={styles.container}>
+        <h1 style={styles.header}>Alarmed</h1>
+        <p style={styles.subheader}>
+          {armedCount} notification{armedCount === 1 ? "" : "s"} armed
+          {permissionGranted === false ? " · notifications denied" : ""}
+        </p>
+
+        {permissionGranted === false ? (
+          <p style={styles.warning}>
+            Notification permission is off, so nags can&apos;t fire. Enable it
+            in your browser settings.
+          </p>
+        ) : null}
+        {error ? <p style={styles.warning}>{error}</p> : null}
+
+        <div style={styles.composer}>
+          <input
+            style={styles.input}
+            placeholder="What should nag you?"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+          />
+          <div style={styles.presetRow}>
+            {PRESETS.map((preset) => (
+              <button
+                key={preset.label}
+                type="button"
+                style={styles.presetButton}
+                onClick={() => addPreset(preset)}
+              >
+                <span style={styles.presetButtonText}>{preset.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <ul style={styles.list}>
+          {tasks.length === 0 ? (
+            <li style={styles.caption}>No tasks yet — add one above.</li>
+          ) : (
+            tasks.map((task) => (
+              <TaskRow
+                key={task.id}
+                task={task}
+                pendingCount={plannedByTask.get(task.id) ?? 0}
+                onComplete={() => runMutation(() => completeTask(task.id))}
+                onReopen={() => runMutation(() => reopenTask(task.id))}
+                onDelete={() => runMutation(() => deleteTask(task.id))}
+                onSnooze={() => handleSnooze(task.id)}
+              />
+            ))
+          )}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+interface TaskRowProps {
+  task: Task;
+  pendingCount: number;
+  onComplete: () => void;
+  onReopen: () => void;
+  onDelete: () => void;
+  onSnooze: () => void;
+}
+
+function TaskRow({ task, pendingCount, onComplete, onReopen, onDelete, onSnooze }: TaskRowProps) {
+  const done = task.completedAt != null;
+  return (
+    <li style={styles.row}>
+      <p style={done ? { ...styles.title, ...styles.titleDone } : styles.title}>
+        {task.title}
+      </p>
+      <p style={styles.caption}>
+        {done
+          ? `Done ${formatDateTime(task.completedAt as string)}`
+          : `Fires ${formatDateTime(task.fireAt)} · every ${formatInterval(
+              task.nagIntervalSeconds
+            )} · ${pendingCount} armed`}
+      </p>
+      <div style={styles.actions}>
+        {done ? (
+          <button type="button" style={styles.action} onClick={onReopen}>
+            <span style={styles.actionText}>Reopen</span>
+          </button>
+        ) : (
+          <>
+            <button type="button" style={styles.action} onClick={onComplete}>
+              <span style={styles.actionText}>Done</span>
+            </button>
+            <button type="button" style={styles.action} onClick={onSnooze}>
+              <span style={styles.actionText}>Snooze</span>
+            </button>
+          </>
+        )}
+        <button type="button" style={styles.action} onClick={onDelete}>
+          <span style={{ ...styles.actionText, ...styles.deleteText }}>Delete</span>
+        </button>
       </div>
     </li>
   );
 }
 
-export default function App() {
-  return (
-    <div className="app">
-      <h1>Alarmed</h1>
-      <ul className="task-list">
-        {sampleTasks.map((task) => (
-          <TaskRow key={task.id} task={task} />
-        ))}
-      </ul>
-    </div>
-  );
-}
+const styles: Record<string, CSSProperties> = {
+  page: {
+    minHeight: "100svh",
+    backgroundColor: colors.background,
+  },
+  container: {
+    maxWidth: 480,
+    margin: "0 auto",
+    paddingTop: 60,
+    paddingBottom: spacing.xl,
+  },
+  center: {
+    minHeight: "100svh",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+  },
+  header: {
+    ...typography.title,
+    fontSize: 28,
+    margin: 0,
+    paddingLeft: spacing.md,
+    paddingRight: spacing.md,
+    color: colors.textPrimary,
+  },
+  subheader: {
+    ...typography.caption,
+    margin: 0,
+    marginTop: spacing.xs,
+    marginBottom: spacing.md,
+    paddingLeft: spacing.md,
+    paddingRight: spacing.md,
+    color: colors.textSecondary,
+  },
+  warning: {
+    ...typography.caption,
+    margin: 0,
+    marginBottom: spacing.sm,
+    marginLeft: spacing.md,
+    marginRight: spacing.md,
+    color: colors.danger,
+  },
+  composer: {
+    paddingLeft: spacing.md,
+    paddingRight: spacing.md,
+    marginBottom: spacing.md,
+  },
+  input: {
+    ...typography.body,
+    display: "block",
+    boxSizing: "border-box",
+    width: "100%",
+    backgroundColor: colors.surface,
+    border: `1px solid ${colors.border}`,
+    borderRadius: 8,
+    paddingLeft: spacing.md,
+    paddingRight: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
+    color: colors.textPrimary,
+  },
+  presetRow: {
+    display: "flex",
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  presetButton: {
+    flex: 1,
+    backgroundColor: colors.accent,
+    border: "none",
+    borderRadius: 8,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
+    cursor: "pointer",
+  },
+  presetButtonText: {
+    ...typography.body,
+    color: colors.onAccent,
+    fontWeight: 600,
+  },
+  list: {
+    listStyle: "none",
+    margin: 0,
+    paddingLeft: spacing.md,
+    paddingRight: spacing.md,
+    paddingBottom: spacing.xl,
+  },
+  row: {
+    backgroundColor: colors.surface,
+    borderRadius: 8,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    border: `1px solid ${colors.border}`,
+  },
+  title: {
+    ...typography.body,
+    margin: 0,
+    fontWeight: 600,
+    color: colors.textPrimary,
+  },
+  titleDone: {
+    textDecorationLine: "line-through",
+    color: colors.textSecondary,
+  },
+  caption: {
+    ...typography.caption,
+    margin: 0,
+    marginTop: spacing.xs,
+    color: colors.textSecondary,
+  },
+  actions: {
+    display: "flex",
+    flexDirection: "row",
+    gap: spacing.lg,
+    marginTop: spacing.sm,
+  },
+  action: {
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.xs,
+    paddingLeft: 0,
+    paddingRight: 0,
+  },
+  actionText: {
+    ...typography.body,
+    color: colors.accent,
+    fontWeight: 600,
+  },
+  deleteText: {
+    color: colors.danger,
+  },
+};

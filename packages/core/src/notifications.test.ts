@@ -30,6 +30,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     priority: 0,
     deviceOrigin: "mobile",
     deletedAt: null,
+    snoozeCount: 0,
     ...overrides,
   };
 }
@@ -105,5 +106,21 @@ describe("planNagNotifications", () => {
       { now: NOW }
     );
     expect(planned[0]?.body).toBe("bring the form");
+  });
+
+  it("escalates body copy further into the burst, and starts higher with a nonzero snoozeCount", () => {
+    const fresh = planNagNotifications(
+      [makeTask({ nagMaxCount: 6, snoozeCount: 0 })],
+      { now: NOW }
+    );
+    const presnoozed = planNagNotifications(
+      [makeTask({ nagMaxCount: 6, snoozeCount: 5 })],
+      { now: NOW }
+    );
+
+    // same task, same burst length, but the already-snoozed one starts at a
+    // harsher tier than the fresh one ends at.
+    expect(fresh[0]?.body).not.toBe(fresh[5]?.body);
+    expect(presnoozed[0]?.body).toBe(fresh[5]?.body);
   });
 });

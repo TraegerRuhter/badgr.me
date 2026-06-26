@@ -1,31 +1,14 @@
-.app {
-  max-width: 480px;
-  margin: 0 auto;
-  padding: 24px 16px;
+.spinner {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 3px solid rgba(0, 0, 0, 0.1);
+  border-top-color: currentColor;
+  animation: spin 0.8s linear infinite;
 }
 
-.task-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.task-row {
-  background: var(--surface, #fff);
-  border: 1px solid var(--border, #d8d8dc);
-  border-radius: 8px;
-  padding: 16px;
-}
-
-.task-title {
-  font-weight: 600;
-}
-
-.task-caption {
-  margin-top: 4px;
-  font-size: 13px;
-  color: #6b6b6f;
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

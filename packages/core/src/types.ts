@@ -20,6 +20,8 @@ export interface Task {
   priority: number;
   deviceOrigin: DeviceOrigin;
   deletedAt: string | null;
+  /** Times this task's nag has been snoozed; drives escalating copy and (with "shrink") interval. */
+  snoozeCount: number;
 }
 
 /** Mirrors the `nag_events` table (spec §4.2). */

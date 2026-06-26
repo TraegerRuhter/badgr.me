@@ -20,12 +20,14 @@ export const taskSchema = z.object({
   priority: z.number().int(),
   deviceOrigin: deviceOriginSchema,
   deletedAt: z.string().datetime().nullable(),
+  snoozeCount: z.number().int().nonnegative(),
 });
 
 export const newTaskSchema = taskSchema.omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+  snoozeCount: true,
 });
 
 export const nagEventSchema = z.object({
