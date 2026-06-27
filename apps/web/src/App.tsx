@@ -1,4 +1,4 @@
-import { planNagNotifications, type EscalationMode, type Task } from "@alarmed/core";
+import { planNagNotifications, refreshNextOccurrenceCopy, type EscalationMode, type Task } from "@alarmed/core";
 import { colors, spacing, typography } from "@alarmed/ui";
 import {
   useCallback,
@@ -13,6 +13,7 @@ import {
   completeTask,
   createTask,
   deleteTask,
+  getTask,
   initDatabase,
   listTasks,
   reopenTask,
@@ -135,15 +136,16 @@ export default function App() {
     (taskId: string) =>
       runMutation(async () => {
         const updated = await snoozeTask(taskId);
-        if (!updated || !nagCopyGenerator) return;
-        // Best-effort: the resync above already re-armed this occurrence with
-        // the (always-correct, offline-safe) template-ladder line. If the
-        // nag-ai proxy is reachable, overwrite just that one notification
-        // once a fresher line comes back — never block the resync on it.
-        void nagCopyGenerator
-          .generate({ task: updated, level: updated.snoozeCount })
-          .then((copy) => overlayNextOccurrenceCopy(taskId, new Date(updated.fireAt), copy))
-          .catch(() => {});
+        if (!updated) return;
+        // Best-effort: the resync above already re-armed every occurrence with
+        // the offline-safe template-ladder line. If the nag-ai proxy is
+        // reachable, overlay a fresher line onto just the next one — shared
+        // core helper guards against resurrecting a task dealt with meanwhile.
+        void refreshNextOccurrenceCopy(updated, {
+          generator: nagCopyGenerator,
+          getTask,
+          scheduleNextOccurrence: overlayNextOccurrenceCopy,
+        }).catch(() => {});
       }),
     [runMutation]
   );

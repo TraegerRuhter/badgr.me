@@ -14,10 +14,11 @@ export interface SnoozeResult {
  * Pure computation for the "Snooze" notification action: pushes the next fire
  * out by `snoozeSeconds` from now and bumps `snoozeCount` (which drives both
  * escalating copy and, combined with `shrink` mode, a tighter interval on
- * what follows). Doesn't touch `nagMaxCount`/`nagUntil` — those are absolute
- * caps on the task's lifecycle, and `computeNagBurst` already re-derives the
- * remaining budget fresh from whatever `fireAt` ends up being, the same way
- * it fast-forwards through any other past occurrence.
+ * what follows). Doesn't touch `nagMaxCount`/`nagUntil` directly — but the
+ * bumped `snoozeCount` is fed to `computeNagBurst` as `priorOccurrences`, so
+ * each snooze is charged against `nagMaxCount`. That keeps the count an
+ * absolute lifetime ceiling: a "6×" task nags at most 6 times total no matter
+ * how often it's snoozed, rather than getting a fresh full burst every time.
  */
 export function applySnooze(
   task: SnoozeInput,

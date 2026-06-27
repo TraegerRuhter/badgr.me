@@ -76,6 +76,7 @@ export function planNagNotifications(
     nagUntil: task.nagUntil ? new Date(task.nagUntil) : null,
     escalationMode: task.escalationMode,
     priority: task.priority,
+    snoozeCount: task.snoozeCount,
   }));
 
   const bursts = allocateNotificationBudget(schedulable, {

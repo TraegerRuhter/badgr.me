@@ -206,7 +206,9 @@ export async function snoozeTask(
   options?: { snoozeSeconds?: number; now?: Date }
 ): Promise<Task | null> {
   const task = await getTask(id);
-  if (!task) return null;
+  // Don't resurrect a finished task: snoozing a stale notification for one
+  // that's already been completed or deleted must be a no-op.
+  if (!task || task.completedAt != null || task.deletedAt != null) return null;
 
   const { fireAt, snoozeCount } = applySnooze(task, options);
   const updatedAt = new Date().toISOString();

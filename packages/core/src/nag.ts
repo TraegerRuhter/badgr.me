@@ -19,6 +19,14 @@ export interface NagBurstParams {
   escalationMode?: EscalationMode;
   /** Most notifications this call may return, e.g. a per-task or remaining-global budget. */
   maxNotifications?: number;
+  /**
+   * Occurrences already "used up" before this walk begins, counted against
+   * `nagMaxCount`. Snoozing reschedules `fireAt` into the future, so those
+   * fires would otherwise never be charged against the cap; passing the
+   * snooze count here keeps `nagMaxCount` an absolute lifetime ceiling
+   * (a "6×" task nags at most 6 times total, however often it's snoozed).
+   */
+  priorOccurrences?: number;
   /** Occurrences strictly before `now` are skipped (can't schedule a past trigger). Defaults to current time. */
   now?: Date;
 }
@@ -40,6 +48,7 @@ export function computeNagBurst(params: NagBurstParams): Date[] {
     nagUntil = null,
     escalationMode = "none",
     maxNotifications = MAX_BURST_PER_TASK,
+    priorOccurrences = 0,
     now = new Date(),
   } = params;
 
@@ -50,7 +59,7 @@ export function computeNagBurst(params: NagBurstParams): Date[] {
   const burst: Date[] = [];
   let nextFire = fireAt.getTime();
   let intervalMs = nagIntervalSeconds * 1000;
-  let occurrence = 0;
+  let occurrence = priorOccurrences;
 
   while (burst.length < maxNotifications) {
     if (nagMaxCount != null && occurrence >= nagMaxCount) break;
@@ -79,6 +88,8 @@ export interface SchedulableTask {
   escalationMode?: EscalationMode;
   /** Higher fires first when the global budget is tight. */
   priority?: number;
+  /** Times this task has been snoozed; consumed against `nagMaxCount` so snoozing can't reset the cap. */
+  snoozeCount?: number;
 }
 
 export interface ScheduledBurst {
@@ -126,6 +137,7 @@ export function allocateNotificationBudget(
       nagUntil: task.nagUntil,
       escalationMode: task.escalationMode,
       maxNotifications: cap,
+      priorOccurrences: task.snoozeCount ?? 0,
       now,
     });
 

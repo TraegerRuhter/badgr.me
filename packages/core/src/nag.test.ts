@@ -113,6 +113,34 @@ describe("computeNagBurst", () => {
     expect(burst).toEqual([]);
   });
 
+  it("charges priorOccurrences against nagMaxCount so snoozing can't reset the cap", () => {
+    // A "6×" task snoozed 4 times: fireAt is now in the future (fresh walk),
+    // but the 4 prior fires must still count, leaving only 2 left.
+    const burst = computeNagBurst({
+      fireAt: FIRE_AT,
+      nagIntervalSeconds: 3600,
+      nagMaxCount: 6,
+      priorOccurrences: 4,
+      maxNotifications: 20,
+      now: NOW_BEFORE_FIRE,
+    });
+
+    expect(burst).toHaveLength(2);
+  });
+
+  it("returns nothing once priorOccurrences has reached nagMaxCount", () => {
+    const burst = computeNagBurst({
+      fireAt: FIRE_AT,
+      nagIntervalSeconds: 3600,
+      nagMaxCount: 6,
+      priorOccurrences: 6,
+      maxNotifications: 20,
+      now: NOW_BEFORE_FIRE,
+    });
+
+    expect(burst).toEqual([]);
+  });
+
   it("rejects a non-positive interval", () => {
     expect(() =>
       computeNagBurst({ fireAt: FIRE_AT, nagIntervalSeconds: 0 })

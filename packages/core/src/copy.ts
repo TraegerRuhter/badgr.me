@@ -36,22 +36,22 @@ const TIERS: Tier[] = [
   {
     minLevel: 3,
     lines: [
-      "This still isn't done. Come on.",
       "You've put this off a few times now.",
+      "This still isn't done. Come on.",
     ],
   },
   {
     minLevel: 5,
     lines: [
-      "Seriously? Still ignoring this?",
       "This isn't going away just because you keep dismissing it.",
+      "Seriously? Still ignoring this?",
     ],
   },
   {
     minLevel: 8,
     lines: [
-      "Wow. You really are just going to let this rot, huh?",
       "At this point it's almost impressive how long you've avoided this.",
+      "Wow. You really are just going to let this rot, huh?",
     ],
   },
 ];
@@ -70,6 +70,10 @@ function tierFor(level: number): Tier {
  * that's never snoozed still ramps in tone the same way `shrink` mode already
  * ramps the interval, and live snoozing pushes the floor up further.
  *
+ * Tone never softens as `level` rises: within a tier the lines are ordered
+ * mild→harsh and we advance through them and then hold at the harshest, so two
+ * consecutive snoozes can read the same but never *milder* than the last.
+ *
  * The task's own notes are never overwritten by snark: notes are
  * user-authored content, the ladder only replaces the generic fallback line.
  */
@@ -80,7 +84,8 @@ export function generateTemplateCopy(task: Task, level: number): CopyResult {
   }
 
   const tier = tierFor(level);
-  const line = tier.lines[level % tier.lines.length];
+  const withinTier = Math.min(level - tier.minLevel, tier.lines.length - 1);
+  const line = tier.lines[withinTier];
   return { title: task.title, body: line };
 }
 
