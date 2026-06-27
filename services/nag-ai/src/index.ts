@@ -17,6 +17,11 @@ const server = createServer({
   sharedSecret: process.env.NAG_AI_SHARED_SECRET ?? null,
 });
 
+server.on("error", (err) => {
+  console.error("nag-ai server error:", err);
+  process.exit(1);
+});
+
 server.listen(port, () => {
   console.log(`nag-ai proxy listening on :${port}`);
 });
