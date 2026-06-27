@@ -1,4 +1,10 @@
-import { applySnooze, type DeviceOrigin, type EscalationMode, type Task } from "@alarmed/core";
+import {
+  applySnooze,
+  type DeviceOrigin,
+  type EscalationMode,
+  type LocalTaskStore,
+  type Task,
+} from "@alarmed/core";
 import * as Crypto from "expo-crypto";
 import * as SQLite from "expo-sqlite";
 
@@ -231,3 +237,50 @@ export async function deleteTask(id: string): Promise<void> {
     [now, now, id]
   );
 }
+
+/**
+ * The `LocalTaskStore` the core sync engine drives. Unlike `listTasks` this
+ * includes soft-deleted rows (sync needs deletes to converge), and `upsertMany`
+ * writes whatever the reconcile decided the local store should take, replacing
+ * any existing row by primary key.
+ */
+export const localTaskStore: LocalTaskStore = {
+  async listAllForSync(): Promise<Task[]> {
+    const db = await getDb();
+    const rows = await db.getAllAsync<TaskRow>("SELECT * FROM tasks");
+    return rows.map(rowToTask);
+  },
+  async upsertMany(tasks: Task[]): Promise<void> {
+    if (tasks.length === 0) return;
+    const db = await getDb();
+    for (const task of tasks) {
+      await db.runAsync(
+        `INSERT OR REPLACE INTO tasks (
+           id, title, notes, created_at, updated_at, fire_at,
+           nag_interval_seconds, nag_max_count, nag_until, escalation_mode,
+           completed_at, dismissed_at, repeat_rule, priority, device_origin,
+           deleted_at, snooze_count
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          task.id,
+          task.title,
+          task.notes,
+          task.createdAt,
+          task.updatedAt,
+          task.fireAt,
+          task.nagIntervalSeconds,
+          task.nagMaxCount,
+          task.nagUntil,
+          task.escalationMode,
+          task.completedAt,
+          task.dismissedAt,
+          task.repeatRule,
+          task.priority,
+          task.deviceOrigin,
+          task.deletedAt,
+          task.snoozeCount,
+        ]
+      );
+    }
+  },
+};

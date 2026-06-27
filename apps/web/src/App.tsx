@@ -20,6 +20,7 @@ import {
   snoozeTask,
   type NewTaskInput,
 } from "./db/database";
+import { runSync, syncEnabled } from "./sync/supabase";
 import {
   overlayNextOccurrenceCopy,
   rescheduleAllNotifications,
@@ -84,6 +85,16 @@ export default function App() {
     setArmedCount(scheduledCount);
   }, []);
 
+  // Best-effort Supabase reconcile: push local edits up, pull remote ones down,
+  // then refresh the local view. Runs in the background so the UI never blocks
+  // on the network, and swallows failures so the app stays offline-first.
+  const backgroundSync = useCallback(() => {
+    if (!syncEnabled) return;
+    void runSync()
+      .then(() => syncFromDb())
+      .catch(() => {});
+  }, [syncFromDb]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -93,6 +104,7 @@ export default function App() {
         if (cancelled) return;
         setPermissionGranted(granted);
         await syncFromDb();
+        if (!cancelled) backgroundSync();
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -102,7 +114,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [syncFromDb]);
+  }, [syncFromDb, backgroundSync]);
 
   const runMutation = useCallback(
     async (mutate: () => Promise<unknown>) => {
@@ -110,11 +122,12 @@ export default function App() {
         setError(null);
         await mutate();
         await syncFromDb();
+        backgroundSync();
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
     },
-    [syncFromDb]
+    [syncFromDb, backgroundSync]
   );
 
   const addPreset = useCallback(

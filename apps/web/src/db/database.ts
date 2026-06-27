@@ -1,4 +1,4 @@
-import { applySnooze, type EscalationMode, type Task } from "@alarmed/core";
+import { applySnooze, type LocalTaskStore, type EscalationMode, type Task } from "@alarmed/core";
 
 /**
  * Local persistence — the web counterpart to
@@ -143,3 +143,20 @@ export async function deleteTask(id: string): Promise<void> {
   task.updatedAt = now;
   writeAll(tasks);
 }
+
+/**
+ * The `LocalTaskStore` the core sync engine drives. Unlike `listTasks` this
+ * includes soft-deleted rows (sync needs deletes to converge), and `upsertMany`
+ * applies whatever the reconcile decided the local store should take.
+ */
+export const localTaskStore: LocalTaskStore = {
+  async listAllForSync(): Promise<Task[]> {
+    return readAll();
+  },
+  async upsertMany(incoming: Task[]): Promise<void> {
+    if (incoming.length === 0) return;
+    const byId = new Map(readAll().map((t) => [t.id, t]));
+    for (const task of incoming) byId.set(task.id, task);
+    writeAll([...byId.values()]);
+  },
+};
