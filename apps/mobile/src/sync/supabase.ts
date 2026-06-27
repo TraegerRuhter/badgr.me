@@ -8,7 +8,7 @@ import {
   createSupabaseRemoteStore,
   ensureAnonSession,
 } from "@alarmed/supabase";
-import { syncTasks, type SyncResult } from "@alarmed/core";
+import { createCoalescedRunner, syncTasks, type SyncResult } from "@alarmed/core";
 
 import { localTaskStore } from "../db/database";
 
@@ -32,12 +32,16 @@ const remote = client ? createSupabaseRemoteStore(client) : null;
 
 export const syncEnabled = remote !== null;
 
-/**
- * One best-effort reconciliation pass. Sync failures (offline, auth, RLS) must
- * never break the offline-first app, so the caller swallows rejections.
- */
-export async function runSync(): Promise<SyncResult> {
+async function performSync(): Promise<SyncResult> {
   if (!remote || !client) return { pushed: 0, pulled: 0 };
   await ensureAnonSession(client);
   return syncTasks(localTaskStore, remote);
 }
+
+/**
+ * One best-effort reconciliation pass, coalesced so a burst of triggers (each
+ * change kicks a sync) never overlaps two passes racing each other — at most
+ * one runs while one more is queued. Sync failures (offline, auth, RLS) must
+ * never break the offline-first app, so the runner swallows rejections.
+ */
+export const runSync = createCoalescedRunner(performSync);

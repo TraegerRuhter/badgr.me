@@ -104,6 +104,35 @@ export interface RescheduleResult {
 }
 
 /**
+ * Schedules (or, by reusing the identifier, replaces) a single nag
+ * notification. Shared by the full reschedule and the post-snooze AI overlay
+ * so the trigger/content shape stays identical between them.
+ */
+function scheduleNag(
+  identifier: string,
+  fireAt: Date,
+  copy: CopyResult
+): Promise<string> {
+  const trigger: Notifications.DateTriggerInput = {
+    type: Notifications.SchedulableTriggerInputTypes.DATE,
+    date: fireAt,
+  };
+  if (Platform.OS === "android") {
+    trigger.channelId = ANDROID_CHANNEL_ID;
+  }
+  return Notifications.scheduleNotificationAsync({
+    identifier,
+    content: {
+      title: copy.title,
+      body: copy.body,
+      sound: "default",
+      categoryIdentifier: NAG_CATEGORY_ID,
+    },
+    trigger,
+  });
+}
+
+/**
  * Recomputes the entire pending set from the current tasks and re-arms the
  * device to match (cancel stale, schedule the budgeted burst). Idempotent and
  * safe to call after any task change and on every app foreground (spec §3.3).
@@ -116,25 +145,9 @@ export async function rescheduleAllNotifications(
   const planned = planNagNotifications(tasks);
 
   await Promise.all(
-    planned.map((p) => {
-      const trigger: Notifications.DateTriggerInput = {
-        type: Notifications.SchedulableTriggerInputTypes.DATE,
-        date: p.fireAt,
-      };
-      if (Platform.OS === "android") {
-        trigger.channelId = ANDROID_CHANNEL_ID;
-      }
-      return Notifications.scheduleNotificationAsync({
-        identifier: p.identifier,
-        content: {
-          title: p.title,
-          body: p.body,
-          sound: "default",
-          categoryIdentifier: NAG_CATEGORY_ID,
-        },
-        trigger,
-      });
-    })
+    planned.map((p) =>
+      scheduleNag(p.identifier, p.fireAt, { title: p.title, body: p.body })
+    )
   );
 
   return { scheduledCount: planned.length };
@@ -151,23 +164,7 @@ export async function overlayNextOccurrenceCopy(
   fireAt: Date,
   copy: CopyResult
 ): Promise<void> {
-  const trigger: Notifications.DateTriggerInput = {
-    type: Notifications.SchedulableTriggerInputTypes.DATE,
-    date: fireAt,
-  };
-  if (Platform.OS === "android") {
-    trigger.channelId = ANDROID_CHANNEL_ID;
-  }
-  await Notifications.scheduleNotificationAsync({
-    identifier: buildNotificationId(taskId, 0),
-    content: {
-      title: copy.title,
-      body: copy.body,
-      sound: "default",
-      categoryIdentifier: NAG_CATEGORY_ID,
-    },
-    trigger,
-  });
+  await scheduleNag(buildNotificationId(taskId, 0), fireAt, copy);
 }
 
 /** How many nag notifications are currently armed on the device (for debugging). */
