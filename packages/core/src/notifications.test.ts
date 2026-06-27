@@ -118,9 +118,28 @@ describe("planNagNotifications", () => {
       { now: NOW }
     );
 
-    // same task, same burst length, but the already-snoozed one starts at a
-    // harsher tier than the fresh one ends at.
+    // The already-snoozed one starts at a harsher tier than the fresh one
+    // ends at (its first occurrence is at the fresh burst's level 5).
     expect(fresh[0]?.body).not.toBe(fresh[5]?.body);
     expect(presnoozed[0]?.body).toBe(fresh[5]?.body);
+  });
+
+  it("treats nagMaxCount as a lifetime cap: snoozes shrink the remaining burst", () => {
+    const fresh = planNagNotifications(
+      [makeTask({ nagMaxCount: 6, snoozeCount: 0, nagIntervalSeconds: 3600 })],
+      { now: NOW }
+    );
+    const snoozedFive = planNagNotifications(
+      [makeTask({ nagMaxCount: 6, snoozeCount: 5, nagIntervalSeconds: 3600 })],
+      { now: NOW }
+    );
+    const snoozedOut = planNagNotifications(
+      [makeTask({ nagMaxCount: 6, snoozeCount: 6, nagIntervalSeconds: 3600 })],
+      { now: NOW }
+    );
+
+    expect(fresh).toHaveLength(6);
+    expect(snoozedFive).toHaveLength(1); // 6 cap − 5 snoozes already charged
+    expect(snoozedOut).toHaveLength(0); // cap fully consumed → the nag stops
   });
 });

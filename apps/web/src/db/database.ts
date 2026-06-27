@@ -120,7 +120,9 @@ export async function snoozeTask(
 ): Promise<Task | null> {
   const tasks = readAll();
   const task = tasks.find((t) => t.id === id);
-  if (!task) return null;
+  // Don't resurrect a finished task: snoozing a stale notification for one
+  // that's already been completed or deleted must be a no-op.
+  if (!task || task.completedAt != null || task.deletedAt != null) return null;
 
   const { fireAt, snoozeCount } = applySnooze(task, options);
   task.fireAt = fireAt.toISOString();

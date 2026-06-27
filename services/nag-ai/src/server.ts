@@ -32,7 +32,11 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
 
 function isAuthorized(req: IncomingMessage, sharedSecret?: string | null): boolean {
   if (!sharedSecret) return true;
-  return req.headers.authorization === `Bearer ${sharedSecret}`;
+  // `authorization` is string | string[] — a duplicated header arrives as an
+  // array, which would never === the expected string. Normalize to the first.
+  const header = req.headers.authorization;
+  const value = Array.isArray(header) ? header[0] : header;
+  return value === `Bearer ${sharedSecret}`;
 }
 
 /**
