@@ -1,4 +1,4 @@
-import { isNaggable, parseNotificationId, planNagNotifications, type EscalationMode, type Task } from "@alarmed/core";
+import { parseNotificationId, planNagNotifications, refreshNextOccurrenceCopy, type EscalationMode, type Task } from "@alarmed/core";
 import { colors, spacing, typography } from "@alarmed/ui";
 import { StatusBar } from "expo-status-bar";
 import * as Notifications from "expo-notifications";
@@ -150,27 +150,16 @@ export default function App() {
     (taskId: string) =>
       runMutation(async () => {
         const updated = await snoozeTask(taskId);
-        if (!updated || !nagCopyGenerator) return;
-        // Best-effort: the resync above already re-armed this occurrence with
-        // the (always-correct, offline-safe) template-ladder line. If the
-        // nag-ai proxy is reachable, overwrite just that one notification
-        // once a fresher line comes back — never block the resync on it.
-        void nagCopyGenerator
-          .generate({ task: updated, level: updated.snoozeCount })
-          .then(async (copy) => {
-            // The generate() call can take seconds; re-check that the task
-            // wasn't completed/deleted/re-snoozed in the meantime, or we'd
-            // resurrect a nag for a task the user already dealt with.
-            const fresh = await getTask(taskId);
-            if (
-              fresh &&
-              isNaggable(fresh) &&
-              fresh.snoozeCount === updated.snoozeCount
-            ) {
-              await overlayNextOccurrenceCopy(taskId, new Date(fresh.fireAt), copy);
-            }
-          })
-          .catch(() => {});
+        if (!updated) return;
+        // Best-effort: the resync above already re-armed every occurrence with
+        // the offline-safe template-ladder line. If the nag-ai proxy is
+        // reachable, overlay a fresher line onto just the next one — shared
+        // core helper guards against resurrecting a task dealt with meanwhile.
+        void refreshNextOccurrenceCopy(updated, {
+          generator: nagCopyGenerator,
+          getTask,
+          scheduleNextOccurrence: overlayNextOccurrenceCopy,
+        }).catch(() => {});
       }),
     [runMutation]
   );

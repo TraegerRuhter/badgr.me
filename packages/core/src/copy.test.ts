@@ -69,6 +69,25 @@ describe("generateTemplateCopy", () => {
     const task = makeTask();
     expect(generateTemplateCopy(task, 6)).toEqual(generateTemplateCopy(task, 6));
   });
+
+  it("never softens tone as the level rises within or across tiers", () => {
+    const task = makeTask();
+    // Build the canonical mild→harsh ordering by collecting the distinct lines
+    // in the order they first appear as the level climbs.
+    const order: string[] = [];
+    for (let level = 0; level <= 30; level++) {
+      const body = generateTemplateCopy(task, level).body;
+      if (!order.includes(body)) order.push(body);
+    }
+    // Now the rank (index in that order) must be monotonically non-decreasing
+    // across every level: a line may hold, but never revert to an earlier one.
+    let maxRank = -1;
+    for (let level = 0; level <= 30; level++) {
+      const rank = order.indexOf(generateTemplateCopy(task, level).body);
+      expect(rank).toBeGreaterThanOrEqual(maxRank);
+      maxRank = Math.max(maxRank, rank);
+    }
+  });
 });
 
 describe("templateCopyGenerator", () => {
