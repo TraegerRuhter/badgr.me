@@ -5,5 +5,6 @@ export * from "./remoteCopy";
 export * from "./snooze";
 export * from "./notifications";
 export * from "./snoozeCopy";
+export * from "./sync";
 export * from "./validation";
 export * from "./fixtures";
