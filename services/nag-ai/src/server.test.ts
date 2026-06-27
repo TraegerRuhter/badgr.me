@@ -129,4 +129,18 @@ describe("createServer /v1/nag-copy", () => {
 
     expect(res.status).toBe(502);
   });
+
+  it("413s on an oversized body instead of buffering it all", async () => {
+    server = createServer({ anthropicClient: fakeClient("line") });
+    baseUrl = await listen(server);
+
+    const res = await fetch(`${baseUrl}/v1/nag-copy`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      // ~64KB of title, well over the 16KB cap.
+      body: JSON.stringify({ title: "x".repeat(64 * 1024), level: 0 }),
+    });
+
+    expect(res.status).toBe(413);
+  });
 });

@@ -28,6 +28,10 @@ function getDb(): Promise<SQLite.SQLiteDatabase> {
   return dbPromise;
 }
 
+// Base schema = the Phase 1 columns. Later columns are added as ordered
+// migrations below, so an existing install upgrades correctly instead of
+// silently missing a column (CREATE TABLE IF NOT EXISTS is a no-op once the
+// table already exists). Mirrors the supabase/migrations split.
 const CREATE_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY NOT NULL,
@@ -45,16 +49,54 @@ CREATE TABLE IF NOT EXISTS tasks (
   repeat_rule TEXT,
   priority INTEGER NOT NULL DEFAULT 0,
   device_origin TEXT NOT NULL,
-  deleted_at TEXT,
-  snooze_count INTEGER NOT NULL DEFAULT 0
+  deleted_at TEXT
 );
 CREATE INDEX IF NOT EXISTS tasks_fire_at_idx ON tasks (fire_at);
 `;
+
+async function columnExists(
+  db: SQLite.SQLiteDatabase,
+  table: string,
+  column: string
+): Promise<boolean> {
+  const cols = await db.getAllAsync<{ name: string }>(
+    `PRAGMA table_info(${table})`
+  );
+  return cols.some((c) => c.name === column);
+}
+
+/**
+ * Ordered, idempotent schema migrations. Each runs once, gated by the db's
+ * `PRAGMA user_version`; the column-existence checks make them safe to re-run
+ * against a store created by any prior version of this code.
+ */
+const MIGRATIONS: ((db: SQLite.SQLiteDatabase) => Promise<void>)[] = [
+  // v1 — Phase 2 escalation: per-task snooze count.
+  async (db) => {
+    if (!(await columnExists(db, "tasks", "snooze_count"))) {
+      await db.execAsync(
+        "ALTER TABLE tasks ADD COLUMN snooze_count INTEGER NOT NULL DEFAULT 0;"
+      );
+    }
+  },
+];
 
 export async function initDatabase(): Promise<void> {
   const db = await getDb();
   await db.execAsync("PRAGMA journal_mode = WAL;");
   await db.execAsync(CREATE_TABLE_SQL);
+
+  const row = await db.getFirstAsync<{ user_version: number }>(
+    "PRAGMA user_version"
+  );
+  const current = row?.user_version ?? 0;
+  for (let version = current; version < MIGRATIONS.length; version++) {
+    await MIGRATIONS[version](db);
+  }
+  if (current < MIGRATIONS.length) {
+    // user_version can't be bound as a parameter; it's a trusted constant.
+    await db.execAsync(`PRAGMA user_version = ${MIGRATIONS.length}`);
+  }
 }
 
 interface TaskRow {

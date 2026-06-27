@@ -9,11 +9,16 @@ import { buildNotificationId, planNagNotifications, type CopyResult, type Task }
  * even if the app is force-closed. Browsers have no equivalent without a
  * push server, so this arms plain `setTimeout`s that fire a `Notification`
  * while this tab stays open — closing or reloading the tab drops them. See
- * apps/web/README.md for the tradeoff; Supabase + Web Push (Phase 3) is the
- * path to closing this gap.
+ * apps/web/README.md for the tradeoff; a Web Push backend is the path to
+ * closing this gap.
  */
 
 let timers = new Map<string, ReturnType<typeof setTimeout>>();
+
+// setTimeout stores its delay in a 32-bit int; anything larger overflows and
+// fires (almost) immediately. Skip timers beyond this — they get re-armed on
+// the next reschedule (foreground/change), by which point they're in range.
+const MAX_TIMEOUT_MS = 2_147_483_647;
 
 export async function requestNotificationPermissions(): Promise<boolean> {
   if (!("Notification" in window)) return false;
@@ -26,6 +31,29 @@ export async function requestNotificationPermissions(): Promise<boolean> {
 function clearAllTimers(): void {
   for (const timer of timers.values()) clearTimeout(timer);
   timers = new Map();
+}
+
+/**
+ * Arms (or replaces) a single notification timer. Returns whether it was
+ * actually scheduled — a fire time too far out is skipped rather than firing
+ * immediately. Shared by the full reschedule and the post-snooze AI overlay.
+ */
+function armNotification(identifier: string, fireAt: Date, copy: CopyResult): boolean {
+  const existing = timers.get(identifier);
+  if (existing) clearTimeout(existing);
+  timers.delete(identifier);
+
+  const delay = fireAt.getTime() - Date.now();
+  if (delay > MAX_TIMEOUT_MS) return false;
+
+  const timer = setTimeout(() => {
+    timers.delete(identifier);
+    if (Notification.permission === "granted") {
+      new Notification(copy.title, { body: copy.body, tag: identifier });
+    }
+  }, Math.max(0, delay));
+  timers.set(identifier, timer);
+  return true;
 }
 
 export interface RescheduleResult {
@@ -43,20 +71,14 @@ export async function rescheduleAllNotifications(
 ): Promise<RescheduleResult> {
   clearAllTimers();
 
-  const planned = planNagNotifications(tasks);
-
-  for (const p of planned) {
-    const delay = Math.max(0, p.fireAt.getTime() - Date.now());
-    const timer = setTimeout(() => {
-      timers.delete(p.identifier);
-      if (Notification.permission === "granted") {
-        new Notification(p.title, { body: p.body, tag: p.identifier });
-      }
-    }, delay);
-    timers.set(p.identifier, timer);
+  let scheduledCount = 0;
+  for (const p of planNagNotifications(tasks)) {
+    if (armNotification(p.identifier, p.fireAt, { title: p.title, body: p.body })) {
+      scheduledCount += 1;
+    }
   }
 
-  return { scheduledCount: planned.length };
+  return { scheduledCount };
 }
 
 /**
@@ -71,16 +93,5 @@ export async function overlayNextOccurrenceCopy(
   fireAt: Date,
   copy: CopyResult
 ): Promise<void> {
-  const identifier = buildNotificationId(taskId, 0);
-  const existing = timers.get(identifier);
-  if (existing) clearTimeout(existing);
-
-  const delay = Math.max(0, fireAt.getTime() - Date.now());
-  const timer = setTimeout(() => {
-    timers.delete(identifier);
-    if (Notification.permission === "granted") {
-      new Notification(copy.title, { body: copy.body, tag: identifier });
-    }
-  }, delay);
-  timers.set(identifier, timer);
+  armNotification(buildNotificationId(taskId, 0), fireAt, copy);
 }

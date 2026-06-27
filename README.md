@@ -46,7 +46,7 @@ service-worker strategy can't hook `notificationclick`.
 
 ```
 packages/
-  core/     shared types, nag math, notification planning, copy/escalation, sync engine, validation, fixtures
+  core/     shared types, nag math, notification planning, copy/escalation, sync engine, validation
   ui/       shared design tokens (colors, spacing, typography)
   supabase/ Supabase client + Task<->row mapping + anon auth (the remote half of sync)
 apps/

@@ -16,10 +16,27 @@ export interface ServerOptions {
   sharedSecret?: string | null;
 }
 
+// One short nag-copy request is well under a KB; cap generously and reject
+// anything larger so a malicious or buggy client can't exhaust memory.
+const MAX_BODY_BYTES = 16 * 1024;
+
+class BodyTooLargeError extends Error {}
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = "";
-    req.on("data", (chunk) => (data += chunk));
+    let bytes = 0;
+    req.on("data", (chunk: Buffer | string) => {
+      bytes += Buffer.byteLength(chunk);
+      if (bytes > MAX_BODY_BYTES) {
+        // Stop buffering and let the caller send a 413. Pause rather than
+        // destroy so the response still reaches the client cleanly.
+        req.pause();
+        reject(new BodyTooLargeError());
+        return;
+      }
+      data += chunk;
+    });
     req.on("end", () => resolve(data));
     req.on("error", reject);
   });
@@ -86,6 +103,12 @@ export function createServer(options: ServerOptions) {
           });
         }
       })
-      .catch(() => sendJson(res, 400, { error: "could not read request body" }));
+      .catch((err) => {
+        if (err instanceof BodyTooLargeError) {
+          sendJson(res, 413, { error: "request body too large" });
+        } else {
+          sendJson(res, 400, { error: "could not read request body" });
+        }
+      });
   });
 }
