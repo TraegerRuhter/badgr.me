@@ -1,14 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
-import { generateEscalatedLine, type AnthropicMessages } from "./copyClient";
+import { generateEscalatedLine, type LlmClient } from "./copyClient";
 
-function fakeClient(text: string): AnthropicMessages {
+function fakeClient(text: string): LlmClient {
   return {
-    messages: {
-      create: vi.fn().mockResolvedValue({
-        content: [{ type: "text", text }],
-      }),
+    chat: {
+      completions: {
+        create: vi.fn().mockResolvedValue({
+          choices: [{ message: { content: text } }],
+        }),
+      },
     },
-  } as unknown as AnthropicMessages;
+  } as unknown as LlmClient;
 }
 
 describe("generateEscalatedLine", () => {
@@ -43,9 +45,9 @@ describe("generateEscalatedLine", () => {
 
   it("passes the requested model through to the SDK call", async () => {
     const client = fakeClient("fine");
-    await generateEscalatedLine({ title: "x", level: 0 }, client, "claude-haiku-4-5-20251001");
-    expect(client.messages.create).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "claude-haiku-4-5-20251001" }),
+    await generateEscalatedLine({ title: "x", level: 0 }, client, "llama-3.3-70b-versatile");
+    expect(client.chat.completions.create).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "llama-3.3-70b-versatile" }),
       expect.objectContaining({ timeout: expect.any(Number) })
     );
   });
