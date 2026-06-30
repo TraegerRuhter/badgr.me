@@ -20,7 +20,16 @@ tokens, so they look and behave the same.
 The native app's burst survives a force-close (the OS owns the schedule); the
 PWA's nags only fire while its tab/window stays open, since closing that gap
 needs a push backend. See `apps/mobile/README.md` and `apps/web/README.md`
-for each platform's specifics. Sync to Supabase is Phase 3.
+for each platform's specifics.
+
+Phase 3 adds optional Supabase sync. With a project configured, both clients
+best-effort reconcile against Postgres on launch and after every change —
+local edits push up, remote edits pull down, last-write-wins on `updatedAt`,
+soft-deletes converge. The pure engine (`reconcileTasks`/`syncTasks`) lives in
+`@alarmed/core`; the Supabase client and row mapping in `@alarmed/supabase`;
+each app plugs in its own local store. Sync runs in the background and never
+blocks the UI, so the app stays offline-first — leave the env vars unset and
+it behaves exactly as before. See `supabase/README.md` to turn it on.
 
 Phase 2 adds Done/Snooze actions and escalating nag copy: every pre-scheduled
 notification's body comes from a deterministic, Carrot-style phrase-bank
@@ -37,8 +46,9 @@ service-worker strategy can't hook `notificationclick`.
 
 ```
 packages/
-  core/   shared types, nag math, notification planning, copy/escalation, validation, fixtures
-  ui/     shared design tokens (colors, spacing, typography)
+  core/     shared types, nag math, notification planning, copy/escalation, sync engine, validation
+  ui/       shared design tokens (colors, spacing, typography)
+  supabase/ Supabase client + Task<->row mapping + anon auth (the remote half of sync)
 apps/
   mobile/ Expo (React Native) app — SQLite store + notification scheduler
   web/    Vite React PWA

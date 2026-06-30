@@ -3,7 +3,11 @@ import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 // https://vite.dev/config/
+// Use a subpath on GitHub Pages; local dev stays at root.
+const base = process.env.CI ? "/badgr.me/" : "/";
+
 export default defineConfig({
+  base,
   plugins: [
     react(),
     VitePWA({
@@ -17,7 +21,7 @@ export default defineConfig({
         display: "standalone",
         icons: [
           {
-            src: "/favicon.svg",
+            src: "favicon.svg",
             sizes: "any",
             type: "image/svg+xml",
           },

@@ -45,7 +45,8 @@ describe("generateEscalatedLine", () => {
     const client = fakeClient("fine");
     await generateEscalatedLine({ title: "x", level: 0 }, client, "claude-haiku-4-5-20251001");
     expect(client.messages.create).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "claude-haiku-4-5-20251001" })
+      expect.objectContaining({ model: "claude-haiku-4-5-20251001" }),
+      expect.objectContaining({ timeout: expect.any(Number) })
     );
   });
 });

@@ -1,4 +1,4 @@
-import { applySnooze, type EscalationMode, type Task } from "@alarmed/core";
+import { applySnooze, type LocalTaskStore, type EscalationMode, type Task } from "@alarmed/core";
 
 /**
  * Local persistence — the web counterpart to
@@ -10,14 +10,36 @@ import { applySnooze, type EscalationMode, type Task } from "@alarmed/core";
 
 const STORAGE_KEY = "alarmed.tasks";
 
+/**
+ * Coerces one stored entry into a valid Task, or null if it's too corrupt to
+ * use. Backfills fields added after the initial release (e.g. `snoozeCount`)
+ * so a store written by an older app version keeps working instead of feeding
+ * `undefined` into the escalation/scheduling math.
+ */
+function normalizeStoredTask(raw: unknown): Task | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const t = raw as Record<string, unknown>;
+  if (typeof t.id !== "string" || typeof t.title !== "string") return null;
+  return {
+    ...(t as unknown as Task),
+    snoozeCount:
+      typeof t.snoozeCount === "number" && t.snoozeCount >= 0
+        ? t.snoozeCount
+        : 0,
+  };
+}
+
 function readAll(): Task[] {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) return [];
+  let parsed: unknown;
   try {
-    return JSON.parse(raw) as Task[];
+    parsed = JSON.parse(raw);
   } catch {
     return [];
   }
+  if (!Array.isArray(parsed)) return [];
+  return parsed.map(normalizeStoredTask).filter((t): t is Task => t !== null);
 }
 
 function writeAll(tasks: Task[]): void {
@@ -143,3 +165,20 @@ export async function deleteTask(id: string): Promise<void> {
   task.updatedAt = now;
   writeAll(tasks);
 }
+
+/**
+ * The `LocalTaskStore` the core sync engine drives. Unlike `listTasks` this
+ * includes soft-deleted rows (sync needs deletes to converge), and `upsertMany`
+ * applies whatever the reconcile decided the local store should take.
+ */
+export const localTaskStore: LocalTaskStore = {
+  async listAllForSync(): Promise<Task[]> {
+    return readAll();
+  },
+  async upsertMany(incoming: Task[]): Promise<void> {
+    if (incoming.length === 0) return;
+    const byId = new Map(readAll().map((t) => [t.id, t]));
+    for (const task of incoming) byId.set(task.id, task);
+    writeAll([...byId.values()]);
+  },
+};

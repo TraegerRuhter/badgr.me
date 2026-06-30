@@ -11,6 +11,11 @@ export const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
 
 const MAX_LINE_LENGTH = 140;
 
+// Bound the upstream call. The client already gives up at ~4s and falls back to
+// its template ladder, so there's no point holding a server connection open
+// much longer; this just stops a hung upstream from leaking connections.
+const REQUEST_TIMEOUT_MS = 8000;
+
 export interface NagCopyRequest {
   title: string;
   notes?: string | null;
@@ -46,11 +51,14 @@ export async function generateEscalatedLine(
   client: AnthropicMessages,
   model: string = DEFAULT_MODEL
 ): Promise<CopyResult> {
-  const response = await client.messages.create({
-    model,
-    max_tokens: 60,
-    messages: [{ role: "user", content: buildPrompt(request) }],
-  });
+  const response = await client.messages.create(
+    {
+      model,
+      max_tokens: 60,
+      messages: [{ role: "user", content: buildPrompt(request) }],
+    },
+    { timeout: REQUEST_TIMEOUT_MS }
+  );
 
   const block = response.content.find((b) => b.type === "text");
   const line = block && "text" in block ? block.text.trim() : "";
