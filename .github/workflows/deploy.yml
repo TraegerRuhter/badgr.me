@@ -41,7 +41,7 @@ jobs:
           VITE_SUPABASE_URL: https://bdunfycunehryhwbkbbk.supabase.co
           VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJkdW5meWN1bmVocnlod2JrYmJrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NzA0OTYsImV4cCI6MjA5ODE0NjQ5Nn0.GxgmiHe6qZPyt28Sn_M-tnP99cO4xktR3NCo-Y_4b60
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: apps/web/dist
 
