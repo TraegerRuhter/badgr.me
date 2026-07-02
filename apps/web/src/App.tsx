@@ -18,6 +18,7 @@ import {
   listTasks,
   reopenTask,
   snoozeTask,
+  STORAGE_KEY,
   type NewTaskInput,
 } from "./db/database";
 import { runSync, syncEnabled } from "./sync/supabase";
@@ -100,9 +101,6 @@ export default function App() {
     (async () => {
       try {
         await initDatabase();
-        const granted = await requestNotificationPermissions();
-        if (cancelled) return;
-        setPermissionGranted(granted);
         await syncFromDb();
         if (!cancelled) backgroundSync();
       } catch (err) {
@@ -111,10 +109,29 @@ export default function App() {
         if (!cancelled) setLoading(false);
       }
     })();
+    // Deliberately not awaited before first paint: an unanswered permission
+    // prompt leaves requestPermission() pending indefinitely, which would hold
+    // the whole app on the loading spinner. The banner updates whenever the
+    // user answers, and the scheduler re-checks permission at fire time.
+    void requestNotificationPermissions().then((granted) => {
+      if (!cancelled) setPermissionGranted(granted);
+    });
     return () => {
       cancelled = true;
     };
   }, [syncFromDb, backgroundSync]);
+
+  // `storage` fires here when *another* tab (same origin) writes the store —
+  // reload so every open tab renders the same list and re-arms matching
+  // timers. The Notification `tag` dedupes the actual pop-ups across tabs, so
+  // converging the timers is safe. A null key means localStorage.clear().
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === null || event.key === STORAGE_KEY) void syncFromDb();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [syncFromDb]);
 
   const runMutation = useCallback(
     async (mutate: () => Promise<unknown>) => {
