@@ -5,6 +5,7 @@ import * as Notifications from "expo-notifications";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   FlatList,
   Pressable,
   StyleSheet,
@@ -114,9 +115,6 @@ export default function App() {
         await initDatabase();
         await ensureAndroidChannel();
         await setupNotificationCategories();
-        const granted = await requestNotificationPermissions();
-        if (cancelled) return;
-        setPermissionGranted(granted);
         await syncFromDb();
         if (!cancelled) backgroundSync();
       } catch (err) {
@@ -125,9 +123,30 @@ export default function App() {
         if (!cancelled) setLoading(false);
       }
     })();
+    // Deliberately not awaited before first paint: the list renders behind
+    // the system permission dialog instead of a spinner. Notifications
+    // scheduled before the user answers aren't delivered, so re-arm once
+    // permission lands.
+    void requestNotificationPermissions().then((granted) => {
+      if (cancelled) return;
+      setPermissionGranted(granted);
+      if (granted) void syncFromDb();
+    });
     return () => {
       cancelled = true;
     };
+  }, [syncFromDb, backgroundSync]);
+
+  // Re-arm the burst and catch up with remote edits when the app returns to
+  // the foreground — launch-only re-arm meant a burst that ran dry while the
+  // app sat backgrounded stayed dry until the next manual action.
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      void syncFromDb();
+      backgroundSync();
+    });
+    return () => subscription.remove();
   }, [syncFromDb, backgroundSync]);
 
   const runMutation = useCallback(

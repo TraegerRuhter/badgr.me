@@ -121,6 +121,20 @@ export default function App() {
     };
   }, [syncFromDb, backgroundSync]);
 
+  // setTimeout doesn't tick through system sleep and gets throttled in
+  // background tabs, so a nag due while the laptop was closed never fired.
+  // Re-derive the schedule (and catch up with remote edits) whenever the tab
+  // becomes visible again.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      void syncFromDb();
+      backgroundSync();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [syncFromDb, backgroundSync]);
+
   // `storage` fires here when *another* tab (same origin) writes the store —
   // reload so every open tab renders the same list and re-arms matching
   // timers. The Notification `tag` dedupes the actual pop-ups across tabs, so
