@@ -57,7 +57,7 @@ function isAuthorized(req: IncomingMessage, sharedSecret?: string | null): boole
 }
 
 /**
- * The whole proxy: a single endpoint that holds the Anthropic key
+ * The whole proxy: a single endpoint that holds the LLM API key
  * server-side and rewrites one nag line per request. Clients (mobile/web)
  * never see the key — they call this over plain HTTPS and fall back to
  * their own local template ladder if this is slow, down, or rejects them.

@@ -7,7 +7,7 @@ import { templateCopyGenerator } from "./copy";
  * ladder on any failure — bad status, malformed body, timeout, or being
  * offline. Both mobile and web can use this unmodified: `fetch` and
  * `AbortController` are globals on both platforms, and the proxy is what
- * actually holds the Anthropic key, so nothing platform-specific belongs
+ * actually holds the LLM API key, so nothing platform-specific belongs
  * here.
  */
 export interface RemoteCopyGeneratorOptions {

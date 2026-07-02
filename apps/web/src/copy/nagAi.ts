@@ -3,7 +3,7 @@ import { createRemoteCopyGenerator, type CopyGenerator } from "@alarmed/core";
 /**
  * Wires the shared `RemoteCopyGenerator` to the nag-ai proxy, if one is
  * configured. Vite inlines `VITE_*` vars into the client bundle at build
- * time, so this never carries an Anthropic key — only the proxy's URL and
+ * time, so this never carries an LLM API key — only the proxy's URL and
  * its abuse-deterrence shared secret, if any. Mirrors
  * `apps/mobile/src/copy/nagAi.ts`.
  *

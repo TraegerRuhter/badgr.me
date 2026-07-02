@@ -35,9 +35,10 @@ Phase 2 adds Done/Snooze actions and escalating nag copy: every pre-scheduled
 notification's body comes from a deterministic, Carrot-style phrase-bank
 ladder in `@alarmed/core` (`generateTemplateCopy`) that sharpens with each
 snooze, and snoozing best-effort asks `services/nag-ai` — a thin proxy that
-holds the Anthropic key server-side, never in a client bundle — for a
-fresher AI-rewritten line for just the immediate next occurrence, always
-falling back to the template ladder offline or on any failure. Mobile gets
+holds the LLM API key server-side (Groq free tier by default), never in a
+client bundle — for a fresher AI-rewritten line for just the immediate next
+occurrence, always falling back to the template ladder offline or on any
+failure. Mobile gets
 real OS-level notification action buttons (`expo-notifications` categories);
 the PWA uses in-page Done/Snooze buttons instead, since its `generateSW`
 service-worker strategy can't hook `notificationclick`.
@@ -53,13 +54,20 @@ apps/
   mobile/ Expo (React Native) app — SQLite store + notification scheduler
   web/    Vite React PWA
 services/
-  nag-ai/ proxy holding the Anthropic key server-side; rewrites one nag line per request
+  nag-ai/ proxy holding the LLM API key server-side; rewrites one nag line per request
 supabase/ schema + RLS migrations (see supabase/README.md to apply)
 ```
 
+## Live deployment
+
+The PWA deploys to GitHub Pages on every push to `main`
+(`.github/workflows/deploy.yml`): https://traegerruhter.github.io/badgr.me/
+The Supabase URL + anon key baked into that build are public by design —
+RLS gates access, not key secrecy.
+
 ## Development
 
-Requires Node 20+ and pnpm.
+Requires Node 22+ and pnpm.
 
 ```
 pnpm install
