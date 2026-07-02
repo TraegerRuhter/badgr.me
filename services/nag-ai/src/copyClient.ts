@@ -1,13 +1,12 @@
-import type Anthropic from "@anthropic-ai/sdk";
+import type OpenAI from "openai";
 import type { CopyResult } from "@alarmed/core";
 
 /**
- * Default model for this endpoint: a small, fast model is enough for one
- * short line of rewritten notification copy, and keeps latency low since
- * this call sits in the live "user just tapped Snooze" path. Overridable via
- * env so a deprecated dated snapshot can be bumped without a code change.
+ * Default model: Groq's Llama 3.1 8B Instant — free tier, sub-100ms latency,
+ * more than capable for one short line of notification copy. Overridable via
+ * env so the model can be bumped without a code change.
  */
-export const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
+export const DEFAULT_MODEL = "llama-3.1-8b-instant";
 
 const MAX_LINE_LENGTH = 140;
 
@@ -23,8 +22,8 @@ export interface NagCopyRequest {
   level: number;
 }
 
-/** The subset of the Anthropic client this module actually calls — keeps tests light. */
-export type AnthropicMessages = Pick<Anthropic, "messages">;
+/** The subset of the OpenAI-compatible client this module actually calls — keeps tests light. */
+export type LlmClient = Pick<OpenAI, "chat">;
 
 function buildPrompt(request: NagCopyRequest): string {
   const notesLine = request.notes?.trim()
@@ -42,16 +41,16 @@ function buildPrompt(request: NagCopyRequest): string {
 }
 
 /**
- * Calls Claude for one escalated nag line. Throws on any SDK error or an
+ * Calls the LLM for one escalated nag line. Throws on any SDK error or an
  * empty/oversized response — callers (the HTTP handler) turn that into a
  * failure response so the client falls back to its local template ladder.
  */
 export async function generateEscalatedLine(
   request: NagCopyRequest,
-  client: AnthropicMessages,
+  client: LlmClient,
   model: string = DEFAULT_MODEL
 ): Promise<CopyResult> {
-  const response = await client.messages.create(
+  const response = await client.chat.completions.create(
     {
       model,
       max_tokens: 60,
@@ -60,8 +59,7 @@ export async function generateEscalatedLine(
     { timeout: REQUEST_TIMEOUT_MS }
   );
 
-  const block = response.content.find((b) => b.type === "text");
-  const line = block && "text" in block ? block.text.trim() : "";
+  const line = response.choices[0]?.message?.content?.trim() ?? "";
 
   if (!line || line.length > MAX_LINE_LENGTH) {
     throw new Error("nag-ai: empty or oversized response from model");

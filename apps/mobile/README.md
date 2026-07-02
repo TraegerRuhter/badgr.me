@@ -37,10 +37,16 @@ reliable local notifications.
   from the template ladder (always correct, works offline), and — only if
   `EXPO_PUBLIC_NAG_AI_ENDPOINT` is set — asks the `services/nag-ai` proxy for
   a fresher line and overwrites just the immediate next occurrence once it
-  replies. The proxy holds the Anthropic key server-side; nothing here ever
+  replies. The proxy holds the LLM API key server-side; nothing here ever
   does.
 
-Out of scope until later phases: Supabase sync (Phase 3).
+## Phase 3 scope
+
+- **Optional Supabase sync** (`src/sync/supabase.ts`) — with
+  `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` set (see
+  `supabase/README.md`), the app best-effort reconciles the SQLite store
+  against Postgres on launch and after every change. Unset, it runs fully
+  offline exactly as before.
 
 ## Running it
 

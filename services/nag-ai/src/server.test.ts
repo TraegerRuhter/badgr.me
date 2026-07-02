@@ -2,18 +2,26 @@ import type { Server } from "node:http";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createServer } from "./server";
-import type { AnthropicMessages } from "./copyClient";
+import type { LlmClient } from "./copyClient";
 
-function fakeClient(text: string): AnthropicMessages {
+function fakeClient(text: string): LlmClient {
   return {
-    messages: { create: vi.fn().mockResolvedValue({ content: [{ type: "text", text }] }) },
-  } as unknown as AnthropicMessages;
+    chat: {
+      completions: {
+        create: vi.fn().mockResolvedValue({ choices: [{ message: { content: text } }] }),
+      },
+    },
+  } as unknown as LlmClient;
 }
 
-function failingClient(): AnthropicMessages {
+function failingClient(): LlmClient {
   return {
-    messages: { create: vi.fn().mockRejectedValue(new Error("anthropic is down")) },
-  } as unknown as AnthropicMessages;
+    chat: {
+      completions: {
+        create: vi.fn().mockRejectedValue(new Error("groq is down")),
+      },
+    },
+  } as unknown as LlmClient;
 }
 
 let server: Server;
@@ -35,7 +43,7 @@ afterEach(() => {
 
 describe("createServer /v1/nag-copy", () => {
   it("returns the rewritten line on a valid, unauthenticated request when no secret is configured", async () => {
-    server = createServer({ anthropicClient: fakeClient("Come on already.") });
+    server = createServer({ llmClient: fakeClient("Come on already.") });
     baseUrl = await listen(server);
 
     const res = await fetch(`${baseUrl}/v1/nag-copy`, {
@@ -50,7 +58,7 @@ describe("createServer /v1/nag-copy", () => {
 
   it("rejects requests missing the shared secret", async () => {
     server = createServer({
-      anthropicClient: fakeClient("line"),
+      llmClient: fakeClient("line"),
       sharedSecret: "topsecret",
     });
     baseUrl = await listen(server);
@@ -66,7 +74,7 @@ describe("createServer /v1/nag-copy", () => {
 
   it("accepts requests with the correct shared secret", async () => {
     server = createServer({
-      anthropicClient: fakeClient("line"),
+      llmClient: fakeClient("line"),
       sharedSecret: "topsecret",
     });
     baseUrl = await listen(server);
@@ -84,7 +92,7 @@ describe("createServer /v1/nag-copy", () => {
   });
 
   it("400s on a body that fails schema validation", async () => {
-    server = createServer({ anthropicClient: fakeClient("line") });
+    server = createServer({ llmClient: fakeClient("line") });
     baseUrl = await listen(server);
 
     const res = await fetch(`${baseUrl}/v1/nag-copy`, {
@@ -97,7 +105,7 @@ describe("createServer /v1/nag-copy", () => {
   });
 
   it("400s on malformed JSON", async () => {
-    server = createServer({ anthropicClient: fakeClient("line") });
+    server = createServer({ llmClient: fakeClient("line") });
     baseUrl = await listen(server);
 
     const res = await fetch(`${baseUrl}/v1/nag-copy`, {
@@ -110,7 +118,7 @@ describe("createServer /v1/nag-copy", () => {
   });
 
   it("404s on an unknown route", async () => {
-    server = createServer({ anthropicClient: fakeClient("line") });
+    server = createServer({ llmClient: fakeClient("line") });
     baseUrl = await listen(server);
 
     const res = await fetch(`${baseUrl}/v1/other`, { method: "POST" });
@@ -118,7 +126,7 @@ describe("createServer /v1/nag-copy", () => {
   });
 
   it("502s when the model call fails, so the client knows to fall back", async () => {
-    server = createServer({ anthropicClient: failingClient() });
+    server = createServer({ llmClient: failingClient() });
     baseUrl = await listen(server);
 
     const res = await fetch(`${baseUrl}/v1/nag-copy`, {
@@ -131,7 +139,7 @@ describe("createServer /v1/nag-copy", () => {
   });
 
   it("413s on an oversized body instead of buffering it all", async () => {
-    server = createServer({ anthropicClient: fakeClient("line") });
+    server = createServer({ llmClient: fakeClient("line") });
     baseUrl = await listen(server);
 
     const res = await fetch(`${baseUrl}/v1/nag-copy`, {

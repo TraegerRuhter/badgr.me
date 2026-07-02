@@ -39,8 +39,8 @@ this tab stays open; there's no backend push service wired up yet, so:
 - A nag fires only while the PWA (tab or installed window) is open in the
   background — minimized is fine, closed is not.
 
-Closing this gap needs a push backend (Web Push + a server to trigger it),
-which is Supabase sync (Phase 3) territory, not a web-only fix.
+Closing this gap needs a push backend (Web Push + a server to trigger it) —
+future work, distinct from the data sync Phase 3 shipped.
 
 - **No native notification action buttons.** Real OS-level action buttons on
   a web notification (`actions` on `ServiceWorkerRegistration.showNotification`,

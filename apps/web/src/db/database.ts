@@ -8,22 +8,73 @@ import { applySnooze, type LocalTaskStore, type EscalationMode, type Task } from
  * story on the web.
  */
 
-const STORAGE_KEY = "alarmed.tasks";
+export const STORAGE_KEY = "alarmed.tasks";
+
+function isoString(value: unknown, fallback: string): string {
+  return typeof value === "string" && !Number.isNaN(Date.parse(value))
+    ? value
+    : fallback;
+}
+
+function isoStringOrNull(value: unknown): string | null {
+  return typeof value === "string" && !Number.isNaN(Date.parse(value))
+    ? value
+    : null;
+}
 
 /**
  * Coerces one stored entry into a valid Task, or null if it's too corrupt to
- * use. Backfills fields added after the initial release (e.g. `snoozeCount`)
- * so a store written by an older app version keeps working instead of feeding
- * `undefined` into the escalation/scheduling math.
+ * use (no usable id/title). Every other field is backfilled with the same
+ * defaults `createTask` uses — localStorage is user-editable and versions
+ * drift, and one bad field must degrade that task's value, not crash the
+ * scheduling math for the whole list. Salvage over strictness: sync would
+ * happily propagate a dropped row's absence as staleness, so keeping a
+ * repaired task beats silently losing it.
  */
 function normalizeStoredTask(raw: unknown): Task | null {
   if (typeof raw !== "object" || raw === null) return null;
   const t = raw as Record<string, unknown>;
-  if (typeof t.id !== "string" || typeof t.title !== "string") return null;
+  if (typeof t.id !== "string" || t.id.length === 0) return null;
+  if (typeof t.title !== "string" || t.title.length === 0) return null;
+
+  const now = new Date().toISOString();
   return {
-    ...(t as unknown as Task),
+    id: t.id,
+    title: t.title,
+    notes: typeof t.notes === "string" ? t.notes : null,
+    createdAt: isoString(t.createdAt, now),
+    updatedAt: isoString(t.updatedAt, now),
+    fireAt: isoString(t.fireAt, now),
+    nagIntervalSeconds:
+      typeof t.nagIntervalSeconds === "number" &&
+      Number.isFinite(t.nagIntervalSeconds) &&
+      t.nagIntervalSeconds > 0
+        ? t.nagIntervalSeconds
+        : 60,
+    nagMaxCount:
+      typeof t.nagMaxCount === "number" &&
+      Number.isInteger(t.nagMaxCount) &&
+      t.nagMaxCount > 0
+        ? t.nagMaxCount
+        : null,
+    nagUntil: isoStringOrNull(t.nagUntil),
+    escalationMode:
+      t.escalationMode === "shrink" || t.escalationMode === "sound"
+        ? t.escalationMode
+        : "none",
+    completedAt: isoStringOrNull(t.completedAt),
+    dismissedAt: isoStringOrNull(t.dismissedAt),
+    repeatRule: typeof t.repeatRule === "string" ? t.repeatRule : null,
+    priority:
+      typeof t.priority === "number" && Number.isFinite(t.priority)
+        ? t.priority
+        : 0,
+    deviceOrigin: t.deviceOrigin === "mobile" ? "mobile" : "web",
+    deletedAt: isoStringOrNull(t.deletedAt),
     snoozeCount:
-      typeof t.snoozeCount === "number" && t.snoozeCount >= 0
+      typeof t.snoozeCount === "number" &&
+      Number.isInteger(t.snoozeCount) &&
+      t.snoozeCount >= 0
         ? t.snoozeCount
         : 0,
   };

@@ -1,7 +1,7 @@
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { z } from "zod";
 
-import { generateEscalatedLine, type AnthropicMessages } from "./copyClient.js";
+import { generateEscalatedLine, type LlmClient } from "./copyClient.js";
 
 const requestSchema = z.object({
   title: z.string().min(1),
@@ -10,7 +10,7 @@ const requestSchema = z.object({
 });
 
 export interface ServerOptions {
-  anthropicClient: AnthropicMessages;
+  llmClient: LlmClient;
   model?: string;
   /** When set, requests must send a matching `Authorization: Bearer <secret>` header. */
   sharedSecret?: string | null;
@@ -57,7 +57,7 @@ function isAuthorized(req: IncomingMessage, sharedSecret?: string | null): boole
 }
 
 /**
- * The whole proxy: a single endpoint that holds the Anthropic key
+ * The whole proxy: a single endpoint that holds the LLM API key
  * server-side and rewrites one nag line per request. Clients (mobile/web)
  * never see the key — they call this over plain HTTPS and fall back to
  * their own local template ladder if this is slow, down, or rejects them.
@@ -93,7 +93,7 @@ export function createServer(options: ServerOptions) {
         try {
           const result = await generateEscalatedLine(
             parsed.data,
-            options.anthropicClient,
+            options.llmClient,
             options.model
           );
           sendJson(res, 200, result);
