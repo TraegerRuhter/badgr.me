@@ -57,18 +57,26 @@ describe("row <-> task mapping", () => {
   });
 });
 
-// Minimal fake of the supabase query builder for the two calls the store makes.
+// Minimal fake of the supabase query builder for the two calls the store
+// makes. listAll pages via select().order().range(), so the fake slices the
+// backing array the way PostgREST would.
 function fakeClient(opts: {
   selectData?: TaskRow[];
   selectError?: { message: string };
   upsertError?: { message: string };
 }) {
   const upsert = vi.fn().mockResolvedValue({ error: opts.upsertError ?? null });
-  const select = vi
-    .fn()
-    .mockResolvedValue({ data: opts.selectData ?? [], error: opts.selectError ?? null });
+  const range = vi.fn().mockImplementation((from: number, to: number) =>
+    Promise.resolve(
+      opts.selectError
+        ? { data: null, error: opts.selectError }
+        : { data: (opts.selectData ?? []).slice(from, to + 1), error: null }
+    )
+  );
+  const order = vi.fn().mockReturnValue({ range });
+  const select = vi.fn().mockReturnValue({ order });
   const from = vi.fn().mockReturnValue({ select, upsert });
-  return { client: { from } as unknown as SupabaseClient, from, select, upsert };
+  return { client: { from } as unknown as SupabaseClient, from, select, range, upsert };
 }
 
 describe("createSupabaseRemoteStore", () => {
@@ -81,6 +89,39 @@ describe("createSupabaseRemoteStore", () => {
     expect(from).toHaveBeenCalledWith("tasks");
     expect(select).toHaveBeenCalledWith("*");
     expect(tasks[0]?.id).toBe("11111111-1111-4111-8111-111111111111");
+  });
+
+  it("pages past the PostgREST row cap instead of truncating", async () => {
+    // 1000 full page + 500 partial page: both must come back.
+    const many = Array.from({ length: 1500 }, (_, i) =>
+      makeRow({ id: `id-${String(i).padStart(5, "0")}` })
+    );
+    const { client, range } = fakeClient({ selectData: many });
+    const store = createSupabaseRemoteStore(client);
+
+    const tasks = await store.listAll();
+
+    expect(tasks).toHaveLength(1500);
+    expect(range).toHaveBeenCalledTimes(2);
+    expect(range).toHaveBeenNthCalledWith(1, 0, 999);
+    expect(range).toHaveBeenNthCalledWith(2, 1000, 1999);
+  });
+
+  it("skips rows the sync engine couldn't reconcile instead of importing them", async () => {
+    const good = makeRow();
+    const noId = makeRow({ id: "" });
+    const noTitle = makeRow({ id: "22222222-2222-4222-8222-222222222222", title: "" });
+    const badStamp = makeRow({
+      id: "33333333-3333-4333-8333-333333333333",
+      updated_at: "not a timestamp",
+    });
+    const { client } = fakeClient({ selectData: [good, noId, noTitle, badStamp] });
+    const store = createSupabaseRemoteStore(client);
+
+    const tasks = await store.listAll();
+
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]?.id).toBe(good.id);
   });
 
   it("upsertMany writes mapped rows with id conflict target", async () => {

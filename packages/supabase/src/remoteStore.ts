@@ -79,6 +79,28 @@ export function taskToRow(task: Task): TaskRow {
 
 const DEFAULT_TABLE = "tasks";
 
+// PostgREST caps any single response (Supabase default: 1000 rows). listAll
+// must page past that or sync silently reconciles against a truncated
+// snapshot once the table outgrows one page.
+const PAGE_SIZE = 1000;
+
+/**
+ * A row the sync engine can safely reconcile: it needs a real id to pair on,
+ * a parseable updated_at for last-write-wins, and a title to render. Anything
+ * else degrades gracefully client-side, but these three would corrupt the
+ * sync decision itself — skip such rows instead of importing them.
+ */
+function isUsableRow(row: TaskRow): boolean {
+  return (
+    typeof row.id === "string" &&
+    row.id.length > 0 &&
+    typeof row.title === "string" &&
+    row.title.length > 0 &&
+    typeof row.updated_at === "string" &&
+    !Number.isNaN(Date.parse(row.updated_at))
+  );
+}
+
 export function createSupabaseRemoteStore(
   client: SupabaseClient,
   table: string = DEFAULT_TABLE
@@ -86,10 +108,20 @@ export function createSupabaseRemoteStore(
   return {
     async listAll(): Promise<Task[]> {
       // Pull everything including soft-deleted rows — the sync engine needs
-      // deletes to converge.
-      const { data, error } = await client.from(table).select("*");
-      if (error) throw new Error(`supabase listAll failed: ${error.message}`);
-      return (data as TaskRow[]).map(rowToTask);
+      // deletes to converge. Ordered paging keeps the pages stable.
+      const rows: TaskRow[] = [];
+      for (let from = 0; ; from += PAGE_SIZE) {
+        const { data, error } = await client
+          .from(table)
+          .select("*")
+          .order("id", { ascending: true })
+          .range(from, from + PAGE_SIZE - 1);
+        if (error) throw new Error(`supabase listAll failed: ${error.message}`);
+        const page = (data ?? []) as TaskRow[];
+        rows.push(...page);
+        if (page.length < PAGE_SIZE) break;
+      }
+      return rows.filter(isUsableRow).map(rowToTask);
     },
 
     async upsertMany(tasks: Task[]): Promise<void> {
