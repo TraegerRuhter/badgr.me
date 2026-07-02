@@ -25,12 +25,15 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # The Supabase values below are the *public* anon key + URL — safe in a
+      # client bundle by design (RLS gates access, not key secrecy). Swap them
+      # here if the Supabase project ever changes.
       - name: Build
         run: pnpm --filter @alarmed/web build
         env:
