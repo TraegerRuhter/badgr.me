@@ -117,6 +117,16 @@ describe("createServer /v1/nag-copy", () => {
     expect(res.status).toBe(400);
   });
 
+  it("answers the health probe without auth even when a secret is set", async () => {
+    server = createServer({ llmClient: fakeClient("line"), sharedSecret: "topsecret" });
+    baseUrl = await listen(server);
+
+    const res = await fetch(`${baseUrl}/healthz`);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+  });
+
   it("404s on an unknown route", async () => {
     server = createServer({ llmClient: fakeClient("line") });
     baseUrl = await listen(server);
