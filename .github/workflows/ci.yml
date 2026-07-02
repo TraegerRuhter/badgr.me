@@ -34,3 +34,8 @@ jobs:
 
       - name: Lint
         run: pnpm -r lint
+
+      # A Vite/PWA build break would otherwise surface only in the Pages
+      # deploy, after the merge — catch it on the PR instead.
+      - name: Build web app
+        run: pnpm --filter @alarmed/web build

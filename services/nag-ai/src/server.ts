@@ -64,6 +64,12 @@ function isAuthorized(req: IncomingMessage, sharedSecret?: string | null): boole
  */
 export function createServer(options: ServerOptions) {
   return createHttpServer((req, res) => {
+    // Unauthenticated liveness probe for deployment platforms.
+    if (req.method === "GET" && req.url === "/healthz") {
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
     if (req.method !== "POST" || req.url !== "/v1/nag-copy") {
       sendJson(res, 404, { error: "not found" });
       return;

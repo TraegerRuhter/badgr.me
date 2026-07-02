@@ -1,0 +1,18 @@
+# Weekly dependency freshness. Minor/patch bumps arrive grouped as one PR to
+# keep noise down; majors stay individual since they can need code changes.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

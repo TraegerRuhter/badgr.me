@@ -28,3 +28,17 @@ server.on("error", (err) => {
 server.listen(port, () => {
   console.log(`nag-ai proxy listening on :${port}`);
 });
+
+// Drain in-flight requests on platform-issued shutdowns instead of dropping
+// them mid-response. close() waits on idle keep-alive sockets, so shed those
+// immediately; the timer force-exits if an in-flight response wedges.
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    server.close(() => process.exit(0));
+    server.closeIdleConnections();
+    setTimeout(() => {
+      server.closeAllConnections();
+      process.exit(0);
+    }, 5000).unref();
+  });
+}
