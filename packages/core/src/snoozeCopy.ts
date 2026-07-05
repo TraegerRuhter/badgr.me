@@ -19,6 +19,12 @@ export interface NextOccurrenceCopyDeps {
     fireAt: Date,
     copy: CopyResult
   ) => Promise<void>;
+  /**
+   * Tone shift applied to the escalation level sent to the generator —
+   * same semantics as `PlanOptions.copyLevelOffset`, so the AI line and the
+   * template ladder escalate in step. Clamped at zero.
+   */
+  levelOffset?: number;
 }
 
 /**
@@ -40,7 +46,7 @@ export async function refreshNextOccurrenceCopy(
 
   const copy = await deps.generator.generate({
     task: snoozed,
-    level: snoozed.snoozeCount,
+    level: Math.max(0, snoozed.snoozeCount + (deps.levelOffset ?? 0)),
   });
 
   const fresh = await deps.getTask(snoozed.id);
