@@ -7,4 +7,5 @@ export * from "./notifications";
 export * from "./snoozeCopy";
 export * from "./sync";
 export * from "./concurrency";
+export * from "./settings";
 export * from "./validation";
