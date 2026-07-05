@@ -4,6 +4,7 @@ import {
   parseNotificationId,
   planNagNotifications,
   type CopyResult,
+  type PlanOptions,
   type Task,
 } from "@alarmed/core";
 import * as Notifications from "expo-notifications";
@@ -138,11 +139,12 @@ function scheduleNag(
  * safe to call after any task change and on every app foreground (spec §3.3).
  */
 export async function rescheduleAllNotifications(
-  tasks: Task[]
+  tasks: Task[],
+  options?: PlanOptions
 ): Promise<RescheduleResult> {
   await cancelAllNagNotifications();
 
-  const planned = planNagNotifications(tasks);
+  const planned = planNagNotifications(tasks, options);
 
   await Promise.all(
     planned.map((p) =>

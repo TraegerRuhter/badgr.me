@@ -1,23 +1,29 @@
 import {
   parseNotificationId,
   planNagNotifications,
+  planOptionsFrom,
   refreshNextOccurrenceCopy,
   swipeActionFor,
+  toneLevelOffset,
   DEFAULT_SETTINGS,
+  NAG_TONES,
+  SETTING_LIMITS,
   type AppSettings,
   type EscalationMode,
+  type NagTone,
   type Task,
 } from "@alarmed/core";
 import { colors, radii, spacing, typography, type IconName } from "@alarmed/ui";
 import { StatusBar } from "expo-status-bar";
 import * as Notifications from "expo-notifications";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
   FlatList,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -49,6 +55,8 @@ import {
 } from "./src/notifications/scheduler";
 import { loadSettings, saveSettings } from "./src/settings/store";
 import { Icon } from "./src/ui/Icon";
+import { Segmented } from "./src/ui/Segmented";
+import { Stepper } from "./src/ui/Stepper";
 import { SwipeableCard } from "./src/ui/SwipeableCard";
 import { Toggle } from "./src/ui/Toggle";
 
@@ -114,19 +122,30 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  // Callbacks read settings through a ref so they stay referentially stable —
+  // otherwise every settings tweak would re-run the init effect chain.
+  const settingsRef = useRef(settings);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
   // Pending notifications grouped by task, derived from the same pure planner
-  // the scheduler uses — so the counts shown match what's actually armed.
+  // (and the same settings-derived budget/tone) the scheduler uses — so the
+  // counts shown match what's actually armed.
   const plannedByTask = useMemo(() => {
     const grouped = new Map<string, number>();
-    for (const planned of planNagNotifications(tasks)) {
+    for (const planned of planNagNotifications(tasks, planOptionsFrom(settings))) {
       grouped.set(planned.taskId, (grouped.get(planned.taskId) ?? 0) + 1);
     }
     return grouped;
-  }, [tasks]);
+  }, [tasks, settings]);
 
   const syncFromDb = useCallback(async () => {
     const loaded = await listTasks();
-    const { scheduledCount } = await rescheduleAllNotifications(loaded);
+    const { scheduledCount } = await rescheduleAllNotifications(
+      loaded,
+      planOptionsFrom(settingsRef.current)
+    );
     setTasks(loaded);
     setArmedCount(scheduledCount);
   }, []);
@@ -134,8 +153,9 @@ export default function App() {
   // Best-effort Supabase reconcile: push local edits up, pull remote ones down,
   // then refresh the local view. Runs in the background so the UI never blocks
   // on the network, and swallows failures so the app stays offline-first.
+  // "Pause sync" stops the reconcile without touching the local flow.
   const backgroundSync = useCallback(() => {
-    if (!syncEnabled) return;
+    if (!syncEnabled || settingsRef.current.sync.paused) return;
     void runSync()
       .then(() => syncFromDb())
       .catch(() => {});
@@ -157,7 +177,12 @@ export default function App() {
       }
     })();
     void loadSettings().then((loaded) => {
-      if (!cancelled) setSettings(loaded);
+      if (cancelled) return;
+      settingsRef.current = loaded;
+      setSettings(loaded);
+      // Whatever the init pass armed used defaults — re-arm under the
+      // persisted knobs once they're known.
+      void syncFromDb();
     });
     // Deliberately not awaited before first paint: the list renders behind
     // the system permission dialog instead of a spinner. Notifications
@@ -185,10 +210,18 @@ export default function App() {
     return () => subscription.remove();
   }, [syncFromDb, backgroundSync]);
 
-  const updateSettings = useCallback((next: AppSettings) => {
-    setSettings(next);
-    void saveSettings(next);
-  }, []);
+  // Budget/tone changes must re-arm the pending set (the armed notifications
+  // were computed under the old knobs), so every settings write reschedules.
+  // The ref is assigned synchronously so the re-arm sees the new values.
+  const updateSettings = useCallback(
+    (next: AppSettings) => {
+      settingsRef.current = next;
+      setSettings(next);
+      void saveSettings(next);
+      void syncFromDb();
+    },
+    [syncFromDb]
+  );
 
   const runMutation = useCallback(
     async (mutate: () => Promise<unknown>) => {
@@ -222,16 +255,21 @@ export default function App() {
   const handleSnooze = useCallback(
     (taskId: string) =>
       runMutation(async () => {
-        const updated = await snoozeTask(taskId);
+        const current = settingsRef.current;
+        const updated = await snoozeTask(taskId, {
+          snoozeSeconds: current.nag.snoozeMinutes * 60,
+        });
         if (!updated) return;
         // Best-effort: the resync above already re-armed every occurrence with
         // the offline-safe template-ladder line. If the nag-ai proxy is
-        // reachable, overlay a fresher line onto just the next one — shared
-        // core helper guards against resurrecting a task dealt with meanwhile.
+        // reachable (and AI rewrites aren't turned off), overlay a fresher
+        // line onto just the next one — shared core helper guards against
+        // resurrecting a task dealt with meanwhile.
         void refreshNextOccurrenceCopy(updated, {
-          generator: nagCopyGenerator,
+          generator: current.copy.aiRewrites ? nagCopyGenerator : null,
           getTask,
           scheduleNextOccurrence: overlayNextOccurrenceCopy,
+          levelOffset: toneLevelOffset(current.copy.tone),
         }).catch(() => {});
       }),
     [runMutation]
@@ -493,8 +531,16 @@ interface SettingsSheetProps {
   onClose: () => void;
 }
 
+const TONE_LABELS: Record<NagTone, string> = {
+  gentle: "Gentle",
+  standard: "Standard",
+  savage: "Savage",
+};
+
 function SettingsSheet({ open, settings, onChange, onClose }: SettingsSheetProps) {
   const g = settings.gestures;
+  const n = settings.nag;
+  const c = settings.copy;
   const rightVerb =
     swipeActionFor(settings, "right") === "complete" ? "completes" : "snoozes";
   const leftVerb =
@@ -516,41 +562,172 @@ function SettingsSheet({ open, settings, onChange, onClose }: SettingsSheetProps
           </Pressable>
         </View>
 
-        <View style={styles.groupLabelRow}>
-          <Icon name="swipe" size={15} color={colors.textSecondary} />
-          <Text style={styles.groupLabel}>GESTURES</Text>
-        </View>
-
-        <View style={styles.settingRow}>
-          <View style={styles.settingText}>
-            <Text style={styles.settingName}>Swipe on tasks</Text>
-            <Text style={styles.settingDesc}>
-              Drag a task card sideways to act on it.
-            </Text>
+        <ScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
+          <View style={styles.groupLabelRow}>
+            <Icon name="swipe" size={15} color={colors.textSecondary} />
+            <Text style={styles.groupLabel}>GESTURES</Text>
           </View>
-          <Toggle
-            value={g.swipeEnabled}
-            label="Swipe on tasks"
-            onChange={(swipeEnabled) => onChange({ gestures: { ...g, swipeEnabled } })}
-          />
-        </View>
 
-        <View style={[styles.settingRow, !g.swipeEnabled && styles.settingRowOff]}>
-          <View style={styles.settingText}>
-            <Text style={styles.settingName}>Swap directions</Text>
-            <Text style={styles.settingDesc}>
-              Right {rightVerb} · left {leftVerb}.
-            </Text>
+          <View style={styles.settingRow}>
+            <View style={styles.settingText}>
+              <Text style={styles.settingName}>Swipe on tasks</Text>
+              <Text style={styles.settingDesc}>
+                Drag a task card sideways to act on it.
+              </Text>
+            </View>
+            <Toggle
+              value={g.swipeEnabled}
+              label="Swipe on tasks"
+              onChange={(swipeEnabled) =>
+                onChange({ ...settings, gestures: { ...g, swipeEnabled } })
+              }
+            />
           </View>
-          <Toggle
-            value={g.swapDirections}
-            label="Swap swipe directions"
-            disabled={!g.swipeEnabled}
-            onChange={(swapDirections) =>
-              onChange({ gestures: { ...g, swapDirections } })
-            }
-          />
-        </View>
+
+          <View style={[styles.settingRow, !g.swipeEnabled && styles.settingRowOff]}>
+            <View style={styles.settingText}>
+              <Text style={styles.settingName}>Swap directions</Text>
+              <Text style={styles.settingDesc}>
+                Right {rightVerb} · left {leftVerb}.
+              </Text>
+            </View>
+            <Toggle
+              value={g.swapDirections}
+              label="Swap swipe directions"
+              disabled={!g.swipeEnabled}
+              onChange={(swapDirections) =>
+                onChange({ ...settings, gestures: { ...g, swapDirections } })
+              }
+            />
+          </View>
+
+          <View style={styles.groupLabelRow}>
+            <Icon name="bell" size={15} color={colors.textSecondary} />
+            <Text style={styles.groupLabel}>NAGGING</Text>
+          </View>
+
+          <View style={styles.settingRow}>
+            <View style={styles.settingText}>
+              <Text style={styles.settingName}>Snooze length</Text>
+              <Text style={styles.settingDesc}>
+                How long a snoozed nag stays quiet.
+              </Text>
+            </View>
+            <Stepper
+              value={n.snoozeMinutes}
+              min={SETTING_LIMITS.snoozeMinutes.min}
+              max={SETTING_LIMITS.snoozeMinutes.max}
+              step={n.snoozeMinutes >= 30 ? 15 : n.snoozeMinutes >= 10 ? 5 : 1}
+              unit="m"
+              label="snooze length"
+              onChange={(snoozeMinutes) =>
+                onChange({ ...settings, nag: { ...n, snoozeMinutes } })
+              }
+            />
+          </View>
+
+          <View style={styles.settingRow}>
+            <View style={styles.settingText}>
+              <Text style={styles.settingName}>Nags per task</Text>
+              <Text style={styles.settingDesc}>
+                Cap on pre-armed notifications for one task.
+              </Text>
+            </View>
+            <Stepper
+              value={n.maxPerTask}
+              min={SETTING_LIMITS.maxPerTask.min}
+              max={SETTING_LIMITS.maxPerTask.max}
+              label="nags per task"
+              onChange={(maxPerTask) =>
+                onChange({ ...settings, nag: { ...n, maxPerTask } })
+              }
+            />
+          </View>
+
+          <View style={styles.settingRow}>
+            <View style={styles.settingText}>
+              <Text style={styles.settingName}>Total armed cap</Text>
+              <Text style={styles.settingDesc}>
+                Across all tasks — stays under the 64-slot OS limit.
+              </Text>
+            </View>
+            <Stepper
+              value={n.globalBudget}
+              min={SETTING_LIMITS.globalBudget.min}
+              max={SETTING_LIMITS.globalBudget.max}
+              step={4}
+              label="total armed cap"
+              onChange={(globalBudget) =>
+                onChange({ ...settings, nag: { ...n, globalBudget } })
+              }
+            />
+          </View>
+
+          <View style={styles.groupLabelRow}>
+            <Icon name="bolt" size={15} color={colors.textSecondary} />
+            <Text style={styles.groupLabel}>TONE</Text>
+          </View>
+
+          <View style={styles.settingCol}>
+            <Text style={styles.settingDesc}>
+              How hard the escalation ladder leans as you keep ignoring a task.
+            </Text>
+            <Segmented
+              options={NAG_TONES}
+              labels={TONE_LABELS}
+              value={c.tone}
+              label="Nag tone"
+              onChange={(tone) => onChange({ ...settings, copy: { ...c, tone } })}
+            />
+          </View>
+
+          <View style={styles.settingRow}>
+            <View style={styles.settingText}>
+              <Text style={styles.settingName}>AI rewrites</Text>
+              <Text style={styles.settingDesc}>
+                {nagCopyGenerator
+                  ? "Fresh AI-written lines after each snooze."
+                  : "No nag-ai endpoint configured — template ladder only."}
+              </Text>
+            </View>
+            <Toggle
+              value={c.aiRewrites}
+              label="AI rewrites"
+              onChange={(aiRewrites) =>
+                onChange({ ...settings, copy: { ...c, aiRewrites } })
+              }
+            />
+          </View>
+
+          <View style={styles.groupLabelRow}>
+            <Icon name="reopen" size={15} color={colors.textSecondary} />
+            <Text style={styles.groupLabel}>SYNC</Text>
+          </View>
+
+          <View style={[styles.settingRow, !syncEnabled && styles.settingRowOff]}>
+            <View style={styles.settingText}>
+              <Text style={styles.settingName}>Pause sync</Text>
+              <Text style={styles.settingDesc}>
+                {syncEnabled
+                  ? "Stop background reconciliation for now."
+                  : "No Supabase project configured."}
+              </Text>
+            </View>
+            <Toggle
+              value={settings.sync.paused}
+              label="Pause sync"
+              disabled={!syncEnabled}
+              onChange={(paused) => onChange({ ...settings, sync: { paused } })}
+            />
+          </View>
+
+          <Pressable
+            style={({ pressed }) => [styles.resetBtn, pressed && styles.resetBtnPressed]}
+            onPress={() => onChange(DEFAULT_SETTINGS)}
+          >
+            <Text style={styles.resetBtnText}>Reset to defaults</Text>
+          </Pressable>
+        </ScrollView>
       </View>
     </Modal>
   );
@@ -786,6 +963,34 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     paddingHorizontal: 20,
     paddingBottom: 40,
+    maxHeight: "82%",
+  },
+  sheetScroll: {
+    flexGrow: 0,
+  },
+  settingCol: {
+    gap: 10,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  resetBtn: {
+    marginTop: 22,
+    paddingVertical: 11,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    alignItems: "center",
+  },
+  resetBtnPressed: {
+    borderColor: colors.danger,
+    backgroundColor: colors.dangerSoft,
+  },
+  resetBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+    color: colors.textSecondary,
   },
   sheetHandle: {
     alignSelf: "center",

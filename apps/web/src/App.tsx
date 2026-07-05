@@ -1,12 +1,18 @@
 import {
+  DEFAULT_SETTINGS,
+  NAG_TONES,
   planNagNotifications,
+  planOptionsFrom,
   refreshNextOccurrenceCopy,
+  SETTING_LIMITS,
   swipeActionFor,
+  toneLevelOffset,
   type AppSettings,
   type EscalationMode,
+  type NagTone,
   type Task,
 } from "@alarmed/core";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { nagCopyGenerator } from "./copy/nagAi";
 import {
@@ -93,19 +99,30 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings>(loadSettings);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  // Callbacks read settings through a ref so they stay referentially stable —
+  // otherwise every settings tweak would re-run the init effect chain.
+  const settingsRef = useRef(settings);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
   // Pending notifications grouped by task, derived from the same pure planner
-  // the scheduler uses — so the counts shown match what's actually armed.
+  // (and the same settings-derived budget/tone) the scheduler uses — so the
+  // counts shown match what's actually armed.
   const plannedByTask = useMemo(() => {
     const grouped = new Map<string, number>();
-    for (const planned of planNagNotifications(tasks)) {
+    for (const planned of planNagNotifications(tasks, planOptionsFrom(settings))) {
       grouped.set(planned.taskId, (grouped.get(planned.taskId) ?? 0) + 1);
     }
     return grouped;
-  }, [tasks]);
+  }, [tasks, settings]);
 
   const syncFromDb = useCallback(async () => {
     const loaded = await listTasks();
-    const { scheduledCount } = await rescheduleAllNotifications(loaded);
+    const { scheduledCount } = await rescheduleAllNotifications(
+      loaded,
+      planOptionsFrom(settingsRef.current)
+    );
     setTasks(loaded);
     setArmedCount(scheduledCount);
   }, []);
@@ -113,12 +130,14 @@ export default function App() {
   // Best-effort Supabase reconcile: push local edits up, pull remote ones down,
   // then refresh the local view. Runs in the background so the UI never blocks
   // on the network, and swallows failures so the app stays offline-first.
+  // "Pause sync" stops the reconcile without touching the local flow.
   const backgroundSync = useCallback(() => {
-    if (!syncEnabled) return;
+    if (!syncEnabled || settingsRef.current.sync.paused) return;
     void runSync()
       .then(() => syncFromDb())
       .catch(() => {});
   }, [syncFromDb]);
+
 
   useEffect(() => {
     let cancelled = false;
@@ -166,17 +185,31 @@ export default function App() {
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
       if (event.key === null || event.key === STORAGE_KEY) void syncFromDb();
-      if (event.key === null || event.key === SETTINGS_KEY)
-        setSettings(loadSettings());
+      if (event.key === null || event.key === SETTINGS_KEY) {
+        const next = loadSettings();
+        // Assign the ref before re-arming so the reschedule sees the new
+        // knobs, not the ones from the previous render.
+        settingsRef.current = next;
+        setSettings(next);
+        void syncFromDb();
+      }
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, [syncFromDb]);
 
-  const updateSettings = useCallback((next: AppSettings) => {
-    setSettings(next);
-    saveSettings(next);
-  }, []);
+  // Budget/tone changes must re-arm the pending set (the armed notifications
+  // were computed under the old knobs), so every settings write reschedules.
+  // The ref is assigned synchronously so the re-arm sees the new values.
+  const updateSettings = useCallback(
+    (next: AppSettings) => {
+      settingsRef.current = next;
+      setSettings(next);
+      saveSettings(next);
+      void syncFromDb();
+    },
+    [syncFromDb]
+  );
 
   const runMutation = useCallback(
     async (mutate: () => Promise<unknown>) => {
@@ -210,16 +243,21 @@ export default function App() {
   const handleSnooze = useCallback(
     (taskId: string) =>
       runMutation(async () => {
-        const updated = await snoozeTask(taskId);
+        const current = settingsRef.current;
+        const updated = await snoozeTask(taskId, {
+          snoozeSeconds: current.nag.snoozeMinutes * 60,
+        });
         if (!updated) return;
         // Best-effort: the resync above already re-armed every occurrence with
         // the offline-safe template-ladder line. If the nag-ai proxy is
-        // reachable, overlay a fresher line onto just the next one — shared
-        // core helper guards against resurrecting a task dealt with meanwhile.
+        // reachable (and AI rewrites aren't turned off), overlay a fresher
+        // line onto just the next one — shared core helper guards against
+        // resurrecting a task dealt with meanwhile.
         void refreshNextOccurrenceCopy(updated, {
-          generator: nagCopyGenerator,
+          generator: current.copy.aiRewrites ? nagCopyGenerator : null,
           getTask,
           scheduleNextOccurrence: overlayNextOccurrenceCopy,
+          levelOffset: toneLevelOffset(current.copy.tone),
         }).catch(() => {});
       }),
     [runMutation]
@@ -453,6 +491,77 @@ function Switch({ checked, onChange, label }: SwitchProps) {
   );
 }
 
+interface StepperProps {
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  unit?: string;
+  label: string;
+  onChange: (next: number) => void;
+}
+
+function Stepper({ value, min, max, step = 1, unit, label, onChange }: StepperProps) {
+  const dec = () => onChange(Math.max(min, value - step));
+  const inc = () => onChange(Math.min(max, value + step));
+  return (
+    <div className="stepper" role="group" aria-label={label}>
+      <button
+        type="button"
+        className="stepper-btn"
+        aria-label={`Decrease ${label}`}
+        disabled={value <= min}
+        onClick={dec}
+      >
+        −
+      </button>
+      <span className="stepper-value" aria-live="polite">
+        {value}
+        {unit ? <span className="stepper-unit">{unit}</span> : null}
+      </span>
+      <button
+        type="button"
+        className="stepper-btn"
+        aria-label={`Increase ${label}`}
+        disabled={value >= max}
+        onClick={inc}
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
+const TONE_LABELS: Record<NagTone, string> = {
+  gentle: "Gentle",
+  standard: "Standard",
+  savage: "Savage",
+};
+
+interface SegmentedProps {
+  value: NagTone;
+  onChange: (next: NagTone) => void;
+}
+
+function ToneSegmented({ value, onChange }: SegmentedProps) {
+  return (
+    <div className="segmented" role="radiogroup" aria-label="Nag tone">
+      {NAG_TONES.map((tone) => (
+        <button
+          key={tone}
+          type="button"
+          role="radio"
+          aria-checked={value === tone}
+          className={`segment${value === tone ? " active" : ""}`}
+          onClick={() => onChange(tone)}
+        >
+          {TONE_LABELS[tone]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 interface SettingsDrawerProps {
   settings: AppSettings;
   onChange: (next: AppSettings) => void;
@@ -469,6 +578,8 @@ function SettingsDrawer({ settings, onChange, onClose }: SettingsDrawerProps) {
   }, [onClose]);
 
   const g = settings.gestures;
+  const n = settings.nag;
+  const c = settings.copy;
   const rightVerb = swipeActionFor(settings, "right") === "complete" ? "completes" : "snoozes";
   const leftVerb = swipeActionFor(settings, "left") === "complete" ? "completes" : "snoozes";
 
@@ -496,15 +607,13 @@ function SettingsDrawer({ settings, onChange, onClose }: SettingsDrawerProps) {
         <div className="setting-row">
           <div>
             <p className="setting-name">Swipe on tasks</p>
-            <p className="setting-desc">
-              Drag a task card sideways to act on it.
-            </p>
+            <p className="setting-desc">Drag a task card sideways to act on it.</p>
           </div>
           <Switch
             checked={g.swipeEnabled}
             label="Swipe on tasks"
             onChange={(swipeEnabled) =>
-              onChange({ gestures: { ...g, swipeEnabled } })
+              onChange({ ...settings, gestures: { ...g, swipeEnabled } })
             }
           />
         </div>
@@ -520,10 +629,134 @@ function SettingsDrawer({ settings, onChange, onClose }: SettingsDrawerProps) {
             checked={g.swapDirections}
             label="Swap swipe directions"
             onChange={(swapDirections) =>
-              onChange({ gestures: { ...g, swapDirections } })
+              onChange({ ...settings, gestures: { ...g, swapDirections } })
             }
           />
         </div>
+
+        <div className="setting-group-label">
+          <Icon name="bell" size={15} />
+          Nagging
+        </div>
+
+        <div className="setting-row">
+          <div>
+            <p className="setting-name">Snooze length</p>
+            <p className="setting-desc">How long a snoozed nag stays quiet.</p>
+          </div>
+          <Stepper
+            value={n.snoozeMinutes}
+            min={SETTING_LIMITS.snoozeMinutes.min}
+            max={SETTING_LIMITS.snoozeMinutes.max}
+            step={n.snoozeMinutes >= 30 ? 15 : n.snoozeMinutes >= 10 ? 5 : 1}
+            unit="m"
+            label="snooze length"
+            onChange={(snoozeMinutes) =>
+              onChange({ ...settings, nag: { ...n, snoozeMinutes } })
+            }
+          />
+        </div>
+
+        <div className="setting-row">
+          <div>
+            <p className="setting-name">Nags per task</p>
+            <p className="setting-desc">
+              Cap on pre-armed notifications for one task.
+            </p>
+          </div>
+          <Stepper
+            value={n.maxPerTask}
+            min={SETTING_LIMITS.maxPerTask.min}
+            max={SETTING_LIMITS.maxPerTask.max}
+            label="nags per task"
+            onChange={(maxPerTask) =>
+              onChange({ ...settings, nag: { ...n, maxPerTask } })
+            }
+          />
+        </div>
+
+        <div className="setting-row">
+          <div>
+            <p className="setting-name">Total armed cap</p>
+            <p className="setting-desc">
+              Across all tasks — stays under the 64-slot OS limit.
+            </p>
+          </div>
+          <Stepper
+            value={n.globalBudget}
+            min={SETTING_LIMITS.globalBudget.min}
+            max={SETTING_LIMITS.globalBudget.max}
+            step={4}
+            label="total armed cap"
+            onChange={(globalBudget) =>
+              onChange({ ...settings, nag: { ...n, globalBudget } })
+            }
+          />
+        </div>
+
+        <div className="setting-group-label">
+          <Icon name="bolt" size={15} />
+          Tone
+        </div>
+
+        <div className="setting-col">
+          <p className="setting-desc">
+            How hard the escalation ladder leans as you keep ignoring a task.
+          </p>
+          <ToneSegmented
+            value={c.tone}
+            onChange={(tone) => onChange({ ...settings, copy: { ...c, tone } })}
+          />
+        </div>
+
+        <div className="setting-row">
+          <div>
+            <p className="setting-name">AI rewrites</p>
+            <p className="setting-desc">
+              {nagCopyGenerator
+                ? "Fresh AI-written lines after each snooze."
+                : "No nag-ai endpoint configured — template ladder only."}
+            </p>
+          </div>
+          <Switch
+            checked={c.aiRewrites}
+            label="AI rewrites"
+            onChange={(aiRewrites) =>
+              onChange({ ...settings, copy: { ...c, aiRewrites } })
+            }
+          />
+        </div>
+
+        <div className="setting-group-label">
+          <Icon name="reopen" size={15} />
+          Sync
+        </div>
+
+        <div className={`setting-row${syncEnabled ? "" : " disabled"}`}>
+          <div>
+            <p className="setting-name">Pause sync</p>
+            <p className="setting-desc">
+              {syncEnabled
+                ? "Stop background reconciliation for now."
+                : "No Supabase project configured."}
+            </p>
+          </div>
+          <Switch
+            checked={settings.sync.paused}
+            label="Pause sync"
+            onChange={(paused) =>
+              onChange({ ...settings, sync: { paused } })
+            }
+          />
+        </div>
+
+        <button
+          type="button"
+          className="reset-btn"
+          onClick={() => onChange(DEFAULT_SETTINGS)}
+        >
+          Reset to defaults
+        </button>
       </aside>
     </>
   );

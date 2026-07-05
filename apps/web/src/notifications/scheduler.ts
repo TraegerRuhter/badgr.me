@@ -1,4 +1,10 @@
-import { buildNotificationId, planNagNotifications, type CopyResult, type Task } from "@alarmed/core";
+import {
+  buildNotificationId,
+  planNagNotifications,
+  type CopyResult,
+  type PlanOptions,
+  type Task,
+} from "@alarmed/core";
 
 /**
  * The web counterpart to `apps/mobile/src/notifications/scheduler.ts`. Both
@@ -67,12 +73,13 @@ export interface RescheduleResult {
  * re-arm semantics.
  */
 export async function rescheduleAllNotifications(
-  tasks: Task[]
+  tasks: Task[],
+  options?: PlanOptions
 ): Promise<RescheduleResult> {
   clearAllTimers();
 
   let scheduledCount = 0;
-  for (const p of planNagNotifications(tasks)) {
+  for (const p of planNagNotifications(tasks, options)) {
     if (armNotification(p.identifier, p.fireAt, { title: p.title, body: p.body })) {
       scheduledCount += 1;
     }

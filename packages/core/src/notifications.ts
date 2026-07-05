@@ -52,6 +52,12 @@ export interface PlannedNotification {
 export interface PlanOptions {
   globalBudget?: number;
   perTaskCap?: number;
+  /**
+   * Shifts the escalation level used to pick each occurrence's copy —
+   * negative keeps the ladder milder longer, positive jumps tiers early
+   * (see `toneLevelOffset`). Clamped at zero per occurrence.
+   */
+  copyLevelOffset?: number;
   now?: Date;
 }
 
@@ -92,7 +98,11 @@ export function planNagNotifications(
     const task = tasksById.get(burst.taskId);
     if (!task) continue;
     burst.fireTimes.forEach((fireAt, index) => {
-      const copy = generateTemplateCopy(task, task.snoozeCount + index);
+      const level = Math.max(
+        0,
+        task.snoozeCount + index + (options?.copyLevelOffset ?? 0)
+      );
+      const copy = generateTemplateCopy(task, level);
       planned.push({
         identifier: buildNotificationId(task.id, index),
         taskId: task.id,
