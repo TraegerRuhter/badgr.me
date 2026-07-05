@@ -58,6 +58,17 @@ services/
 supabase/ schema + RLS migrations (see supabase/README.md to apply)
 ```
 
+## Design
+
+Both clients share one visual identity — "midnight ember": deep ink
+surfaces, warm cream text, a single hot ember accent — built from the
+tokens and the hand-drawn 24×24 stroke icon set in `@alarmed/ui`
+(rendered as inline SVG on web, react-native-svg on mobile). Task rows
+support swipe gestures on both platforms (right completes, left snoozes,
+done rows swipe back open); the in-app Settings panel can disable
+swiping or swap the directions, persisted per device and shaped/salvaged
+by the shared `AppSettings` model in `@alarmed/core`.
+
 ## Live deployment
 
 The PWA deploys to GitHub Pages on every push to `main`

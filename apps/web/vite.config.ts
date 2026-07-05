@@ -16,8 +16,8 @@ export default defineConfig({
         name: "Alarmed",
         short_name: "Alarmed",
         description: "Review and manage reminders that nag until they're dealt with.",
-        theme_color: "#34A853",
-        background_color: "#F2F2F7",
+        theme_color: "#FF6B4A",
+        background_color: "#131020",
         display: "standalone",
         icons: [
           {

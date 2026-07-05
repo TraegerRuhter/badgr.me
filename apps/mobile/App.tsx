@@ -1,5 +1,14 @@
-import { parseNotificationId, planNagNotifications, refreshNextOccurrenceCopy, type EscalationMode, type Task } from "@alarmed/core";
-import { colors, spacing, typography } from "@alarmed/ui";
+import {
+  parseNotificationId,
+  planNagNotifications,
+  refreshNextOccurrenceCopy,
+  swipeActionFor,
+  DEFAULT_SETTINGS,
+  type AppSettings,
+  type EscalationMode,
+  type Task,
+} from "@alarmed/core";
+import { colors, radii, spacing, typography, type IconName } from "@alarmed/ui";
 import { StatusBar } from "expo-status-bar";
 import * as Notifications from "expo-notifications";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -7,6 +16,7 @@ import {
   ActivityIndicator,
   AppState,
   FlatList,
+  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -37,25 +47,46 @@ import {
   requestNotificationPermissions,
   setupNotificationCategories,
 } from "./src/notifications/scheduler";
+import { loadSettings, saveSettings } from "./src/settings/store";
+import { Icon } from "./src/ui/Icon";
+import { SwipeableCard } from "./src/ui/SwipeableCard";
+import { Toggle } from "./src/ui/Toggle";
 
 configureNotificationHandler();
 
 interface Preset {
   label: string;
+  sub: string;
+  icon: IconName;
   firstDelayMs: number;
   intervalSeconds: number;
   nagMaxCount: number;
   escalationMode?: EscalationMode;
 }
 
-// Quick-add presets. The fast one exists to actually prove the nag mechanic on
-// device in under three minutes; the second mirrors the spec's "every 1h, 6×";
-// the third proves out "shrink" escalation (interval halves each fire) fast.
+// Quick-add presets — same set as the web app's, so a task built from a
+// given preset behaves identically on either platform.
 const PRESETS: Preset[] = [
-  { label: "10s · 30s × 5", firstDelayMs: 10_000, intervalSeconds: 30, nagMaxCount: 5 },
-  { label: "1m · 1h × 6", firstDelayMs: 60_000, intervalSeconds: 3600, nagMaxCount: 6 },
   {
-    label: "Shrink · 10s × 6",
+    label: "Rapid",
+    sub: "10s · 30s × 5",
+    icon: "bolt",
+    firstDelayMs: 10_000,
+    intervalSeconds: 30,
+    nagMaxCount: 5,
+  },
+  {
+    label: "Hourly",
+    sub: "1m · 1h × 6",
+    icon: "clock",
+    firstDelayMs: 60_000,
+    intervalSeconds: 3600,
+    nagMaxCount: 6,
+  },
+  {
+    label: "Shrink",
+    sub: "10s · 1m × 6",
+    icon: "shrink",
     firstDelayMs: 10_000,
     intervalSeconds: 60,
     nagMaxCount: 6,
@@ -80,6 +111,8 @@ export default function App() {
   const [permissionGranted, setPermissionGranted] = useState<boolean | null>(null);
   const [armedCount, setArmedCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Pending notifications grouped by task, derived from the same pure planner
   // the scheduler uses — so the counts shown match what's actually armed.
@@ -123,6 +156,9 @@ export default function App() {
         if (!cancelled) setLoading(false);
       }
     })();
+    void loadSettings().then((loaded) => {
+      if (!cancelled) setSettings(loaded);
+    });
     // Deliberately not awaited before first paint: the list renders behind
     // the system permission dialog instead of a spinner. Notifications
     // scheduled before the user answers aren't delivered, so re-arm once
@@ -148,6 +184,11 @@ export default function App() {
     });
     return () => subscription.remove();
   }, [syncFromDb, backgroundSync]);
+
+  const updateSettings = useCallback((next: AppSettings) => {
+    setSettings(next);
+    void saveSettings(next);
+  }, []);
 
   const runMutation = useCallback(
     async (mutate: () => Promise<unknown>) => {
@@ -216,18 +257,35 @@ export default function App() {
       <View style={[styles.container, styles.center]}>
         <ActivityIndicator color={colors.accent} />
         <Text style={styles.caption}>Opening local store…</Text>
-        <StatusBar style="auto" />
+        <StatusBar style="light" />
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>Alarmed</Text>
-      <Text style={styles.subheader}>
-        {armedCount} notification{armedCount === 1 ? "" : "s"} armed
-        {permissionGranted === false ? " · notifications denied" : ""}
-      </Text>
+      <View style={styles.masthead}>
+        <View style={styles.logoMark}>
+          <Icon name="bell" size={24} color={colors.onAccent} strokeWidth={2.2} />
+        </View>
+        <Text style={styles.wordmark}>
+          Alarm<Text style={styles.wordmarkEmber}>ed</Text>
+        </Text>
+        <Pressable
+          style={styles.iconBtn}
+          accessibilityLabel="Settings"
+          onPress={() => setSettingsOpen(true)}
+        >
+          <Icon name="sliders" size={20} color={colors.textSecondary} />
+        </Pressable>
+      </View>
+      <View style={styles.sublineRow}>
+        {armedCount > 0 ? <View style={styles.armedDot} /> : null}
+        <Text style={styles.subline}>
+          {armedCount} notification{armedCount === 1 ? "" : "s"} armed
+          {permissionGranted === false ? " · notifications denied" : ""}
+        </Text>
+      </View>
 
       {permissionGranted === false ? (
         <Text style={styles.warning}>
@@ -250,10 +308,12 @@ export default function App() {
           {PRESETS.map((preset) => (
             <Pressable
               key={preset.label}
-              style={styles.presetButton}
+              style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
               onPress={() => addPreset(preset)}
             >
-              <Text style={styles.presetButtonText}>{preset.label}</Text>
+              <Icon name={preset.icon} size={20} color={colors.accent} />
+              <Text style={styles.chipLabel}>{preset.label}</Text>
+              <Text style={styles.chipSub}>{preset.sub}</Text>
             </Pressable>
           ))}
         </View>
@@ -267,8 +327,9 @@ export default function App() {
           <Text style={styles.caption}>No tasks yet — add one above.</Text>
         }
         renderItem={({ item }) => (
-          <TaskRow
+          <TaskCard
             task={item}
+            settings={settings}
             pendingCount={plannedByTask.get(item.id) ?? 0}
             onComplete={() => runMutation(() => completeTask(item.id))}
             onReopen={() => runMutation(() => reopenTask(item.id))}
@@ -277,13 +338,21 @@ export default function App() {
           />
         )}
       />
-      <StatusBar style="auto" />
+
+      <SettingsSheet
+        open={settingsOpen}
+        settings={settings}
+        onChange={updateSettings}
+        onClose={() => setSettingsOpen(false)}
+      />
+      <StatusBar style="light" />
     </View>
   );
 }
 
-interface TaskRowProps {
+interface TaskCardProps {
   task: Task;
+  settings: AppSettings;
   pendingCount: number;
   onComplete: () => void;
   onReopen: () => void;
@@ -291,38 +360,199 @@ interface TaskRowProps {
   onSnooze: () => void;
 }
 
-function TaskRow({ task, pendingCount, onComplete, onReopen, onDelete, onSnooze }: TaskRowProps) {
+function TaskCard({
+  task,
+  settings,
+  pendingCount,
+  onComplete,
+  onReopen,
+  onDelete,
+  onSnooze,
+}: TaskCardProps) {
   const done = task.completedAt != null;
+
+  // A done task can only be swiped back open; an open task maps each side
+  // through the (possibly swapped) gesture settings.
+  const rightAction = done
+    ? onReopen
+    : swipeActionFor(settings, "right") === "complete"
+      ? onComplete
+      : onSnooze;
+  const leftAction = done
+    ? null
+    : swipeActionFor(settings, "left") === "complete"
+      ? onComplete
+      : onSnooze;
+  const rightIcon: IconName = done
+    ? "reopen"
+    : swipeActionFor(settings, "right") === "complete"
+      ? "check"
+      : "snooze";
+  const leftIcon: IconName =
+    !done && swipeActionFor(settings, "left") === "complete" ? "check" : "snooze";
+
   return (
-    <View style={styles.row}>
-      <Text style={[styles.title, done && styles.titleDone]}>{task.title}</Text>
-      <Text style={styles.caption}>
-        {done
-          ? `Done ${formatDateTime(task.completedAt as string)}`
-          : `Fires ${formatDateTime(task.fireAt)} · every ${formatInterval(
-              task.nagIntervalSeconds
-            )} · ${pendingCount} armed`}
-      </Text>
-      <View style={styles.actions}>
-        {done ? (
-          <Pressable style={styles.action} onPress={onReopen}>
-            <Text style={styles.actionText}>Reopen</Text>
-          </Pressable>
-        ) : (
-          <>
-            <Pressable style={styles.action} onPress={onComplete}>
-              <Text style={styles.actionText}>Done</Text>
-            </Pressable>
-            <Pressable style={styles.action} onPress={onSnooze}>
-              <Text style={styles.actionText}>Snooze</Text>
-            </Pressable>
-          </>
-        )}
-        <Pressable style={styles.action} onPress={onDelete}>
-          <Text style={[styles.actionText, styles.deleteText]}>Delete</Text>
-        </Pressable>
+    <SwipeableCard
+      enabled={settings.gestures.swipeEnabled}
+      onSwipeRight={rightAction}
+      onSwipeLeft={leftAction}
+      rightIcon={rightIcon}
+      leftIcon={leftIcon}
+    >
+      <View style={styles.card}>
+        <View style={[styles.cardRail, done && styles.cardRailDone]} />
+        <Text style={[styles.title, done && styles.titleDone]}>{task.title}</Text>
+        <View style={styles.metaRow}>
+          {done ? (
+            <Text style={styles.caption}>
+              Done {formatDateTime(task.completedAt as string)}
+            </Text>
+          ) : (
+            <>
+              <Text style={styles.caption}>
+                Fires {formatDateTime(task.fireAt)} · every{" "}
+                {formatInterval(task.nagIntervalSeconds)}
+              </Text>
+              <View
+                style={[styles.armedBadge, pendingCount === 0 && styles.armedBadgeZero]}
+              >
+                <Icon
+                  name="bell"
+                  size={11}
+                  strokeWidth={2.6}
+                  color={pendingCount === 0 ? colors.textSecondary : colors.accent}
+                />
+                <Text
+                  style={[
+                    styles.armedBadgeText,
+                    pendingCount === 0 && styles.armedBadgeTextZero,
+                  ]}
+                >
+                  {pendingCount}
+                </Text>
+              </View>
+            </>
+          )}
+        </View>
+        <View style={styles.actions}>
+          {done ? (
+            <ActionButton icon="reopen" label="Reopen" tone="quiet" onPress={onReopen} />
+          ) : (
+            <>
+              <ActionButton icon="check" label="Done" tone="accent" onPress={onComplete} />
+              <ActionButton icon="snooze" label="Snooze" tone="quiet" onPress={onSnooze} />
+            </>
+          )}
+          <View style={styles.actionsSpacer} />
+          <ActionButton icon="trash" label="Delete" tone="danger" onPress={onDelete} />
+        </View>
       </View>
-    </View>
+    </SwipeableCard>
+  );
+}
+
+interface ActionButtonProps {
+  icon: IconName;
+  label: string;
+  tone: "accent" | "quiet" | "danger";
+  onPress: () => void;
+}
+
+function ActionButton({ icon, label, tone, onPress }: ActionButtonProps) {
+  const color =
+    tone === "accent"
+      ? colors.accent
+      : tone === "danger"
+        ? colors.danger
+        : colors.textSecondary;
+  const borderColor =
+    tone === "accent"
+      ? "rgba(255, 107, 74, 0.45)"
+      : tone === "danger"
+        ? "rgba(255, 93, 143, 0.4)"
+        : colors.border;
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.btn,
+        { borderColor },
+        pressed && styles.btnPressed,
+      ]}
+    >
+      <Icon name={icon} size={15} color={color} />
+      <Text style={[styles.btnText, { color }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+interface SettingsSheetProps {
+  open: boolean;
+  settings: AppSettings;
+  onChange: (next: AppSettings) => void;
+  onClose: () => void;
+}
+
+function SettingsSheet({ open, settings, onChange, onClose }: SettingsSheetProps) {
+  const g = settings.gestures;
+  const rightVerb =
+    swipeActionFor(settings, "right") === "complete" ? "completes" : "snoozes";
+  const leftVerb =
+    swipeActionFor(settings, "left") === "complete" ? "completes" : "snoozes";
+
+  return (
+    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.sheetBackdrop} onPress={onClose} />
+      <View style={styles.sheet}>
+        <View style={styles.sheetHandle} />
+        <View style={styles.sheetHead}>
+          <Text style={styles.sheetTitle}>Settings</Text>
+          <Pressable
+            style={styles.iconBtn}
+            accessibilityLabel="Close settings"
+            onPress={onClose}
+          >
+            <Icon name="close" size={18} color={colors.textSecondary} />
+          </Pressable>
+        </View>
+
+        <View style={styles.groupLabelRow}>
+          <Icon name="swipe" size={15} color={colors.textSecondary} />
+          <Text style={styles.groupLabel}>GESTURES</Text>
+        </View>
+
+        <View style={styles.settingRow}>
+          <View style={styles.settingText}>
+            <Text style={styles.settingName}>Swipe on tasks</Text>
+            <Text style={styles.settingDesc}>
+              Drag a task card sideways to act on it.
+            </Text>
+          </View>
+          <Toggle
+            value={g.swipeEnabled}
+            label="Swipe on tasks"
+            onChange={(swipeEnabled) => onChange({ gestures: { ...g, swipeEnabled } })}
+          />
+        </View>
+
+        <View style={[styles.settingRow, !g.swipeEnabled && styles.settingRowOff]}>
+          <View style={styles.settingText}>
+            <Text style={styles.settingName}>Swap directions</Text>
+            <Text style={styles.settingDesc}>
+              Right {rightVerb} · left {leftVerb}.
+            </Text>
+          </View>
+          <Toggle
+            value={g.swapDirections}
+            label="Swap swipe directions"
+            disabled={!g.swipeEnabled}
+            onChange={(swapDirections) =>
+              onChange({ gestures: { ...g, swapDirections } })
+            }
+          />
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -337,95 +567,283 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: spacing.sm,
   },
-  header: {
-    ...typography.title,
-    fontSize: 28,
+  masthead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
     paddingHorizontal: spacing.md,
+  },
+  logoMark: {
+    width: 42,
+    height: 42,
+    borderRadius: radii.md,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.accent,
+    shadowColor: colors.accent,
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  wordmark: {
+    ...typography.display,
+    flex: 1,
     color: colors.textPrimary,
   },
-  subheader: {
-    ...typography.caption,
+  wordmarkEmber: {
+    color: colors.accent,
+  },
+  iconBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sublineRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
     paddingHorizontal: spacing.md,
+    marginTop: spacing.xs,
     marginBottom: spacing.md,
+  },
+  armedDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: colors.accent,
+  },
+  subline: {
+    ...typography.caption,
     color: colors.textSecondary,
   },
   warning: {
     ...typography.caption,
     marginHorizontal: spacing.md,
     marginBottom: spacing.sm,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.danger,
+    backgroundColor: colors.dangerSoft,
     color: colors.danger,
+    overflow: "hidden",
   },
   composer: {
     paddingHorizontal: spacing.md,
-    marginBottom: spacing.md,
+    marginBottom: spacing.lg,
   },
   input: {
     ...typography.body,
     backgroundColor: colors.surface,
     borderColor: colors.border,
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: radii.md,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: 12,
     color: colors.textPrimary,
   },
   presetRow: {
     flexDirection: "row",
     gap: spacing.sm,
-    marginTop: spacing.sm,
+    marginTop: 10,
   },
-  presetButton: {
+  chip: {
     flex: 1,
-    backgroundColor: colors.accent,
-    borderRadius: 8,
-    paddingVertical: spacing.sm,
     alignItems: "center",
+    gap: 4,
+    paddingTop: 12,
+    paddingBottom: 10,
+    paddingHorizontal: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
-  presetButtonText: {
-    ...typography.body,
-    color: colors.onAccent,
-    fontWeight: "600",
+  chipPressed: {
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.accent,
+    transform: [{ scale: 0.96 }],
+  },
+  chipLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.1,
+    color: colors.textPrimary,
+  },
+  chipSub: {
+    fontSize: 11,
+    color: colors.textSecondary,
   },
   list: {
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.xl,
   },
-  row: {
+  card: {
     backgroundColor: colors.surface,
-    borderRadius: 8,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
+    borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: colors.border,
+    paddingTop: 14,
+    paddingBottom: 12,
+    paddingLeft: 20,
+    paddingRight: 16,
+  },
+  cardRail: {
+    position: "absolute",
+    left: 8,
+    top: 14,
+    bottom: 14,
+    width: 3,
+    borderRadius: 2,
+    backgroundColor: colors.accent,
+  },
+  cardRailDone: {
+    backgroundColor: colors.border,
   },
   title: {
-    ...typography.body,
-    fontWeight: "600",
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: -0.2,
     color: colors.textPrimary,
   },
   titleDone: {
     textDecorationLine: "line-through",
     color: colors.textSecondary,
   },
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginTop: 6,
+  },
   caption: {
     ...typography.caption,
     color: colors.textSecondary,
-    marginTop: spacing.xs,
+  },
+  armedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 1,
+    borderRadius: radii.pill,
+    backgroundColor: colors.accentSoft,
+  },
+  armedBadgeZero: {
+    backgroundColor: colors.surfaceRaised,
+  },
+  armedBadgeText: {
+    fontSize: 11.5,
+    fontWeight: "700",
+    color: colors.accent,
+  },
+  armedBadgeTextZero: {
+    color: colors.textSecondary,
   },
   actions: {
     flexDirection: "row",
-    gap: spacing.lg,
-    marginTop: spacing.sm,
+    alignItems: "center",
+    gap: spacing.sm,
+    marginTop: 12,
   },
-  action: {
-    paddingVertical: spacing.xs,
+  actionsSpacer: {
+    flex: 1,
   },
-  actionText: {
-    ...typography.body,
-    color: colors.accent,
+  btn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+  },
+  btnPressed: {
+    backgroundColor: colors.surfaceRaised,
+    transform: [{ scale: 0.95 }],
+  },
+  btnText: {
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 0.1,
+  },
+  sheetBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(9, 7, 18, 0.62)",
+  },
+  sheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radii.lg,
+    borderTopRightRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+  },
+  sheetHandle: {
+    alignSelf: "center",
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    marginTop: 10,
+    marginBottom: 6,
+    backgroundColor: colors.border,
+  },
+  sheetHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  sheetTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    letterSpacing: -0.4,
+    color: colors.textPrimary,
+  },
+  groupLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  groupLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 1.2,
+    color: colors.textSecondary,
+  },
+  settingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  settingRowOff: {
+    opacity: 0.45,
+  },
+  settingText: {
+    flex: 1,
+  },
+  settingName: {
+    fontSize: 15,
     fontWeight: "600",
+    color: colors.textPrimary,
   },
-  deleteText: {
-    color: colors.danger,
+  settingDesc: {
+    fontSize: 12.5,
+    marginTop: 2,
+    color: colors.textSecondary,
   },
 });

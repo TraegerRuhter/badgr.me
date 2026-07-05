@@ -1,12 +1,12 @@
-import { planNagNotifications, refreshNextOccurrenceCopy, type EscalationMode, type Task } from "@alarmed/core";
-import { colors, spacing, typography } from "@alarmed/ui";
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type CSSProperties,
-} from "react";
+  planNagNotifications,
+  refreshNextOccurrenceCopy,
+  swipeActionFor,
+  type AppSettings,
+  type EscalationMode,
+  type Task,
+} from "@alarmed/core";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { nagCopyGenerator } from "./copy/nagAi";
 import {
@@ -21,16 +21,22 @@ import {
   STORAGE_KEY,
   type NewTaskInput,
 } from "./db/database";
+import { loadSettings, saveSettings, SETTINGS_KEY } from "./settings/store";
 import { runSync, syncEnabled } from "./sync/supabase";
 import {
   overlayNextOccurrenceCopy,
   rescheduleAllNotifications,
   requestNotificationPermissions,
 } from "./notifications/scheduler";
+import { Icon } from "./ui/Icon";
+import { useSwipe } from "./ui/useSwipe";
+import type { IconName } from "@alarmed/ui";
 import "./App.css";
 
 interface Preset {
   label: string;
+  sub: string;
+  icon: IconName;
   firstDelayMs: number;
   intervalSeconds: number;
   nagMaxCount: number;
@@ -40,10 +46,26 @@ interface Preset {
 // Quick-add presets — same set as the native app's, so a task built from a
 // given preset behaves identically on either platform.
 const PRESETS: Preset[] = [
-  { label: "10s · 30s × 5", firstDelayMs: 10_000, intervalSeconds: 30, nagMaxCount: 5 },
-  { label: "1m · 1h × 6", firstDelayMs: 60_000, intervalSeconds: 3600, nagMaxCount: 6 },
   {
-    label: "Shrink · 10s × 6",
+    label: "Rapid",
+    sub: "10s · 30s × 5",
+    icon: "bolt",
+    firstDelayMs: 10_000,
+    intervalSeconds: 30,
+    nagMaxCount: 5,
+  },
+  {
+    label: "Hourly",
+    sub: "1m · 1h × 6",
+    icon: "clock",
+    firstDelayMs: 60_000,
+    intervalSeconds: 3600,
+    nagMaxCount: 6,
+  },
+  {
+    label: "Shrink",
+    sub: "10s · 1m × 6",
+    icon: "shrink",
     firstDelayMs: 10_000,
     intervalSeconds: 60,
     nagMaxCount: 6,
@@ -68,6 +90,8 @@ export default function App() {
   const [permissionGranted, setPermissionGranted] = useState<boolean | null>(null);
   const [armedCount, setArmedCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [settings, setSettings] = useState<AppSettings>(loadSettings);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Pending notifications grouped by task, derived from the same pure planner
   // the scheduler uses — so the counts shown match what's actually armed.
@@ -142,10 +166,17 @@ export default function App() {
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
       if (event.key === null || event.key === STORAGE_KEY) void syncFromDb();
+      if (event.key === null || event.key === SETTINGS_KEY)
+        setSettings(loadSettings());
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, [syncFromDb]);
+
+  const updateSettings = useCallback((next: AppSettings) => {
+    setSettings(next);
+    saveSettings(next);
+  }, []);
 
   const runMutation = useCallback(
     async (mutate: () => Promise<unknown>) => {
@@ -196,77 +227,103 @@ export default function App() {
 
   if (loading) {
     return (
-      <div style={styles.page}>
-        <div style={styles.center}>
-          <div className="spinner" style={{ color: colors.accent }} />
-          <p style={styles.caption}>Opening local store…</p>
-        </div>
+      <div className="center-fill">
+        <div className="spinner" />
+        <p className="empty-note">Opening local store…</p>
       </div>
     );
   }
 
   return (
-    <div style={styles.page}>
-      <div style={styles.container}>
-        <h1 style={styles.header}>Alarmed</h1>
-        <p style={styles.subheader}>
-          {armedCount} notification{armedCount === 1 ? "" : "s"} armed
-          {permissionGranted === false ? " · notifications denied" : ""}
-        </p>
-
-        {permissionGranted === false ? (
-          <p style={styles.warning}>
-            Notification permission is off, so nags can&apos;t fire. Enable it
-            in your browser settings.
-          </p>
-        ) : null}
-        {error ? <p style={styles.warning}>{error}</p> : null}
-
-        <div style={styles.composer}>
-          <input
-            style={styles.input}
-            placeholder="What should nag you?"
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-          />
-          <div style={styles.presetRow}>
-            {PRESETS.map((preset) => (
-              <button
-                key={preset.label}
-                type="button"
-                style={styles.presetButton}
-                onClick={() => addPreset(preset)}
-              >
-                <span style={styles.presetButtonText}>{preset.label}</span>
-              </button>
-            ))}
-          </div>
+    <div className="app-shell">
+      <header className="masthead">
+        <div className="logo-mark">
+          <Icon name="bell" size={24} strokeWidth={2.2} />
         </div>
+        <h1 className="wordmark">
+          Alarm<em>ed</em>
+        </h1>
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label="Settings"
+          onClick={() => setSettingsOpen(true)}
+        >
+          <Icon name="sliders" size={20} />
+        </button>
+      </header>
+      <p className="subline">
+        {armedCount > 0 ? <span className="armed-dot" aria-hidden="true" /> : null}
+        {armedCount} notification{armedCount === 1 ? "" : "s"} armed
+        {permissionGranted === false ? " · notifications denied" : ""}
+      </p>
 
-        <ul style={styles.list}>
-          {tasks.length === 0 ? (
-            <li style={styles.caption}>No tasks yet — add one above.</li>
-          ) : (
-            tasks.map((task) => (
-              <TaskRow
-                key={task.id}
-                task={task}
-                pendingCount={plannedByTask.get(task.id) ?? 0}
-                onComplete={() => runMutation(() => completeTask(task.id))}
-                onReopen={() => runMutation(() => reopenTask(task.id))}
-                onDelete={() => runMutation(() => deleteTask(task.id))}
-                onSnooze={() => handleSnooze(task.id)}
-              />
-            ))
-          )}
-        </ul>
+      {permissionGranted === false ? (
+        <p className="banner-warn">
+          Notification permission is off, so nags can&apos;t fire. Enable it in
+          your browser settings.
+        </p>
+      ) : null}
+      {error ? <p className="banner-warn">{error}</p> : null}
+
+      <div className="composer">
+        <input
+          className="field"
+          placeholder="What should nag you?"
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+        />
+        <div className="chip-row">
+          {PRESETS.map((preset) => (
+            <button
+              key={preset.label}
+              type="button"
+              className="chip"
+              onClick={() => addPreset(preset)}
+            >
+              <span className="chip-icon">
+                <Icon name={preset.icon} size={20} />
+              </span>
+              <span className="chip-label">{preset.label}</span>
+              <span className="chip-sub">{preset.sub}</span>
+            </button>
+          ))}
+        </div>
       </div>
+
+      <ul className="task-list">
+        {tasks.length === 0 ? (
+          <li className="empty-note">No tasks yet — add one above.</li>
+        ) : (
+          tasks.map((task) => (
+            <TaskCard
+              key={task.id}
+              task={task}
+              settings={settings}
+              pendingCount={plannedByTask.get(task.id) ?? 0}
+              onComplete={() => runMutation(() => completeTask(task.id))}
+              onReopen={() => runMutation(() => reopenTask(task.id))}
+              onDelete={() => runMutation(() => deleteTask(task.id))}
+              onSnooze={() => handleSnooze(task.id)}
+            />
+          ))
+        )}
+      </ul>
+
+      {settingsOpen ? (
+        <SettingsDrawer
+          settings={settings}
+          onChange={updateSettings}
+          onClose={() => setSettingsOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
 
-interface TaskRowProps {
+interface TaskCardProps {
   task: Task;
+  settings: AppSettings;
   pendingCount: number;
   onComplete: () => void;
   onReopen: () => void;
@@ -274,177 +331,200 @@ interface TaskRowProps {
   onSnooze: () => void;
 }
 
-function TaskRow({ task, pendingCount, onComplete, onReopen, onDelete, onSnooze }: TaskRowProps) {
+function TaskCard({
+  task,
+  settings,
+  pendingCount,
+  onComplete,
+  onReopen,
+  onDelete,
+  onSnooze,
+}: TaskCardProps) {
   const done = task.completedAt != null;
+
+  // A done task can only be swiped back open; an open task maps each side
+  // through the (possibly swapped) gesture settings.
+  const rightAction = done
+    ? onReopen
+    : swipeActionFor(settings, "right") === "complete"
+      ? onComplete
+      : onSnooze;
+  const leftAction = done
+    ? null
+    : swipeActionFor(settings, "left") === "complete"
+      ? onComplete
+      : onSnooze;
+  const rightIcon: IconName = done
+    ? "reopen"
+    : swipeActionFor(settings, "right") === "complete"
+      ? "check"
+      : "snooze";
+  const leftIcon: IconName =
+    !done && swipeActionFor(settings, "left") === "complete" ? "check" : "snooze";
+
+  const { offset, dragging, handlers } = useSwipe({
+    enabled: settings.gestures.swipeEnabled,
+    onSwipeRight: rightAction,
+    onSwipeLeft: leftAction,
+  });
+
   return (
-    <li style={styles.row}>
-      <p style={done ? { ...styles.title, ...styles.titleDone } : styles.title}>
-        {task.title}
-      </p>
-      <p style={styles.caption}>
-        {done
-          ? `Done ${formatDateTime(task.completedAt as string)}`
-          : `Fires ${formatDateTime(task.fireAt)} · every ${formatInterval(
-              task.nagIntervalSeconds
-            )} · ${pendingCount} armed`}
-      </p>
-      <div style={styles.actions}>
-        {done ? (
-          <button type="button" style={styles.action} onClick={onReopen}>
-            <span style={styles.actionText}>Reopen</span>
+    <li className="swipe-track">
+      <div
+        className="swipe-hint right"
+        style={{ opacity: Math.min(1, Math.max(0, offset) / 64) }}
+        aria-hidden="true"
+      >
+        <Icon name={rightIcon} size={22} />
+      </div>
+      <div
+        className="swipe-hint left"
+        style={{ opacity: Math.min(1, Math.max(0, -offset) / 64) }}
+        aria-hidden="true"
+      >
+        <Icon name={leftIcon} size={22} />
+      </div>
+      <div
+        className={`task-card${done ? " done" : ""}${dragging ? " dragging" : ""}`}
+        style={{ transform: `translateX(${offset}px)` }}
+        {...handlers}
+      >
+        <p className="task-title">{task.title}</p>
+        <p className="task-meta">
+          {done ? (
+            <span>Done {formatDateTime(task.completedAt as string)}</span>
+          ) : (
+            <>
+              <span>
+                Fires {formatDateTime(task.fireAt)} · every{" "}
+                {formatInterval(task.nagIntervalSeconds)}
+              </span>
+              <span className={`armed-badge${pendingCount === 0 ? " zero" : ""}`}>
+                <Icon name="bell" size={11} strokeWidth={2.6} />
+                {pendingCount}
+              </span>
+            </>
+          )}
+        </p>
+        <div className="card-actions">
+          {done ? (
+            <button type="button" className="btn btn-quiet" onClick={onReopen}>
+              <Icon name="reopen" size={15} />
+              Reopen
+            </button>
+          ) : (
+            <>
+              <button type="button" className="btn btn-accent" onClick={onComplete}>
+                <Icon name="check" size={15} />
+                Done
+              </button>
+              <button type="button" className="btn btn-quiet" onClick={onSnooze}>
+                <Icon name="snooze" size={15} />
+                Snooze
+              </button>
+            </>
+          )}
+          <button type="button" className="btn btn-danger" onClick={onDelete}>
+            <Icon name="trash" size={15} />
+            Delete
           </button>
-        ) : (
-          <>
-            <button type="button" style={styles.action} onClick={onComplete}>
-              <span style={styles.actionText}>Done</span>
-            </button>
-            <button type="button" style={styles.action} onClick={onSnooze}>
-              <span style={styles.actionText}>Snooze</span>
-            </button>
-          </>
-        )}
-        <button type="button" style={styles.action} onClick={onDelete}>
-          <span style={{ ...styles.actionText, ...styles.deleteText }}>Delete</span>
-        </button>
+        </div>
       </div>
     </li>
   );
 }
 
-const styles: Record<string, CSSProperties> = {
-  page: {
-    minHeight: "100svh",
-    backgroundColor: colors.background,
-  },
-  container: {
-    maxWidth: 480,
-    margin: "0 auto",
-    paddingTop: 60,
-    paddingBottom: spacing.xl,
-  },
-  center: {
-    minHeight: "100svh",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.sm,
-  },
-  header: {
-    ...typography.title,
-    fontSize: 28,
-    margin: 0,
-    paddingLeft: spacing.md,
-    paddingRight: spacing.md,
-    color: colors.textPrimary,
-  },
-  subheader: {
-    ...typography.caption,
-    margin: 0,
-    marginTop: spacing.xs,
-    marginBottom: spacing.md,
-    paddingLeft: spacing.md,
-    paddingRight: spacing.md,
-    color: colors.textSecondary,
-  },
-  warning: {
-    ...typography.caption,
-    margin: 0,
-    marginBottom: spacing.sm,
-    marginLeft: spacing.md,
-    marginRight: spacing.md,
-    color: colors.danger,
-  },
-  composer: {
-    paddingLeft: spacing.md,
-    paddingRight: spacing.md,
-    marginBottom: spacing.md,
-  },
-  input: {
-    ...typography.body,
-    display: "block",
-    boxSizing: "border-box",
-    width: "100%",
-    backgroundColor: colors.surface,
-    border: `1px solid ${colors.border}`,
-    borderRadius: 8,
-    paddingLeft: spacing.md,
-    paddingRight: spacing.md,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.sm,
-    color: colors.textPrimary,
-  },
-  presetRow: {
-    display: "flex",
-    flexDirection: "row",
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-  },
-  presetButton: {
-    flex: 1,
-    backgroundColor: colors.accent,
-    border: "none",
-    borderRadius: 8,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.sm,
-    cursor: "pointer",
-  },
-  presetButtonText: {
-    ...typography.body,
-    color: colors.onAccent,
-    fontWeight: 600,
-  },
-  list: {
-    listStyle: "none",
-    margin: 0,
-    paddingLeft: spacing.md,
-    paddingRight: spacing.md,
-    paddingBottom: spacing.xl,
-  },
-  row: {
-    backgroundColor: colors.surface,
-    borderRadius: 8,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-    border: `1px solid ${colors.border}`,
-  },
-  title: {
-    ...typography.body,
-    margin: 0,
-    fontWeight: 600,
-    color: colors.textPrimary,
-  },
-  titleDone: {
-    textDecorationLine: "line-through",
-    color: colors.textSecondary,
-  },
-  caption: {
-    ...typography.caption,
-    margin: 0,
-    marginTop: spacing.xs,
-    color: colors.textSecondary,
-  },
-  actions: {
-    display: "flex",
-    flexDirection: "row",
-    gap: spacing.lg,
-    marginTop: spacing.sm,
-  },
-  action: {
-    background: "none",
-    border: "none",
-    cursor: "pointer",
-    paddingTop: spacing.xs,
-    paddingBottom: spacing.xs,
-    paddingLeft: 0,
-    paddingRight: 0,
-  },
-  actionText: {
-    ...typography.body,
-    color: colors.accent,
-    fontWeight: 600,
-  },
-  deleteText: {
-    color: colors.danger,
-  },
-};
+interface SwitchProps {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  label: string;
+}
+
+function Switch({ checked, onChange, label }: SwitchProps) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      className="switch"
+      onClick={() => onChange(!checked)}
+    />
+  );
+}
+
+interface SettingsDrawerProps {
+  settings: AppSettings;
+  onChange: (next: AppSettings) => void;
+  onClose: () => void;
+}
+
+function SettingsDrawer({ settings, onChange, onClose }: SettingsDrawerProps) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const g = settings.gestures;
+  const rightVerb = swipeActionFor(settings, "right") === "complete" ? "completes" : "snoozes";
+  const leftVerb = swipeActionFor(settings, "left") === "complete" ? "completes" : "snoozes";
+
+  return (
+    <>
+      <div className="drawer-backdrop" onClick={onClose} />
+      <aside className="drawer" role="dialog" aria-label="Settings">
+        <div className="drawer-head">
+          <h2 className="drawer-title">Settings</h2>
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="Close settings"
+            onClick={onClose}
+          >
+            <Icon name="close" size={18} />
+          </button>
+        </div>
+
+        <div className="setting-group-label">
+          <Icon name="swipe" size={15} />
+          Gestures
+        </div>
+
+        <div className="setting-row">
+          <div>
+            <p className="setting-name">Swipe on tasks</p>
+            <p className="setting-desc">
+              Drag a task card sideways to act on it.
+            </p>
+          </div>
+          <Switch
+            checked={g.swipeEnabled}
+            label="Swipe on tasks"
+            onChange={(swipeEnabled) =>
+              onChange({ gestures: { ...g, swipeEnabled } })
+            }
+          />
+        </div>
+
+        <div className={`setting-row${g.swipeEnabled ? "" : " disabled"}`}>
+          <div>
+            <p className="setting-name">Swap directions</p>
+            <p className="setting-desc">
+              Right {rightVerb} · left {leftVerb}.
+            </p>
+          </div>
+          <Switch
+            checked={g.swapDirections}
+            label="Swap swipe directions"
+            onChange={(swapDirections) =>
+              onChange({ gestures: { ...g, swapDirections } })
+            }
+          />
+        </div>
+      </aside>
+    </>
+  );
+}
