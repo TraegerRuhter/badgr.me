@@ -213,6 +213,88 @@
   margin-top: -4px;
 }
 
+/* ---------- collapsible time drawers ---------- */
+
+.drawer-section {
+  margin-bottom: 6px;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 8px;
+}
+
+.section-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px 6px 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-radius: 8px;
+  transition: color 0.15s;
+}
+
+.section-toggle:hover {
+  color: var(--text);
+}
+
+.section-chevron {
+  display: inline-flex;
+  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.section-chevron.collapsed {
+  transform: rotate(-90deg);
+}
+
+.section-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+}
+
+.section-count {
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Overdue count burns ember so it can't be ignored. */
+.drawer-section.past .section-count {
+  background: var(--ember-soft);
+  color: var(--ember);
+}
+
+.section-action {
+  margin-left: auto;
+  padding: 5px 10px;
+  border: none;
+  background: transparent;
+  color: var(--ember);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+
+.section-action:hover {
+  background: var(--ember-soft);
+}
+
 /* ---------- task cards + swipe ---------- */
 
 .task-list {

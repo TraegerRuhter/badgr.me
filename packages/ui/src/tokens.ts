@@ -66,6 +66,8 @@ export const iconPaths = {
   /** Opposing horizontal arrows — swipe gestures. */
   swipe: "M7.5 7.5L3 12l4.5 4.5M16.5 7.5L21 12l-4.5 4.5M3 12h18",
   close: "M6 6l12 12M18 6L6 18",
+  /** Downward chevron — section drawers rotate it when collapsed. */
+  chevron: "M6 9.5l6 6 6-6",
   plus: "M12 5v14M5 12h14",
   /** Lightning bolt — the fast preset. */
   bolt: "M13.5 3L5.5 13.5h5L9.5 21l8-10.5h-5l1-7.5z",
