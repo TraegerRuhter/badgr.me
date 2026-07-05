@@ -1,4 +1,5 @@
 import {
+  groupTasksIntoSections,
   parseNotificationId,
   planNagNotifications,
   planOptionsFrom,
@@ -12,6 +13,7 @@ import {
   type EscalationMode,
   type NagTone,
   type Task,
+  type TaskBucket,
 } from "@alarmed/core";
 import { colors, radii, spacing, typography, type IconName } from "@alarmed/ui";
 import { StatusBar } from "expo-status-bar";
@@ -20,10 +22,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
-  FlatList,
   Modal,
   Pressable,
   ScrollView,
+  SectionList,
   StyleSheet,
   Text,
   TextInput,
@@ -53,6 +55,7 @@ import {
   requestNotificationPermissions,
   setupNotificationCategories,
 } from "./src/notifications/scheduler";
+import { loadCollapsed, saveCollapsed } from "./src/sections/store";
 import { loadSettings, saveSettings } from "./src/settings/store";
 import { Icon } from "./src/ui/Icon";
 import { Segmented } from "./src/ui/Segmented";
@@ -121,6 +124,17 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState<TaskBucket[]>(["done"]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadCollapsed().then((stored) => {
+      if (!cancelled) setCollapsed(stored);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Callbacks read settings through a ref so they stay referentially stable —
   // otherwise every settings tweak would re-run the init effect chain.
@@ -209,6 +223,20 @@ export default function App() {
     });
     return () => subscription.remove();
   }, [syncFromDb, backgroundSync]);
+
+  // The task list grouped into the collapsible time drawers; a collapsed
+  // drawer keeps its header but renders no rows.
+  const sections = useMemo(() => groupTasksIntoSections(tasks), [tasks]);
+
+  const toggleSection = useCallback((bucket: TaskBucket) => {
+    setCollapsed((prev) => {
+      const next = prev.includes(bucket)
+        ? prev.filter((b) => b !== bucket)
+        : [...prev, bucket];
+      void saveCollapsed(next);
+      return next;
+    });
+  }, []);
 
   // Budget/tone changes must re-arm the pending set (the armed notifications
   // were computed under the old knobs), so every settings write reschedules.
@@ -357,13 +385,76 @@ export default function App() {
         </View>
       </View>
 
-      <FlatList
-        data={tasks}
+      <SectionList
+        sections={sections.map((section) => ({
+          ...section,
+          data: collapsed.includes(section.bucket) ? [] : section.tasks,
+        }))}
         keyExtractor={(task) => task.id}
         contentContainerStyle={styles.list}
+        stickySectionHeadersEnabled={false}
         ListEmptyComponent={
           <Text style={styles.caption}>No tasks yet — add one above.</Text>
         }
+        renderSectionHeader={({ section }) => {
+          const isCollapsed = collapsed.includes(section.bucket);
+          return (
+            <View style={styles.sectionHead}>
+              <Pressable
+                style={styles.sectionToggle}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: !isCollapsed }}
+                onPress={() => toggleSection(section.bucket)}
+              >
+                <View
+                  style={[
+                    styles.sectionChevron,
+                    isCollapsed && styles.sectionChevronCollapsed,
+                  ]}
+                >
+                  <Icon
+                    name="chevron"
+                    size={16}
+                    strokeWidth={2.4}
+                    color={colors.textSecondary}
+                  />
+                </View>
+                <Text style={styles.sectionLabel}>
+                  {section.label.toUpperCase()}
+                </Text>
+                <View
+                  style={[
+                    styles.sectionCount,
+                    section.bucket === "past" && styles.sectionCountPast,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.sectionCountText,
+                      section.bucket === "past" && styles.sectionCountTextPast,
+                    ]}
+                  >
+                    {section.tasks.length}
+                  </Text>
+                </View>
+              </Pressable>
+              {section.bucket === "past" ? (
+                <Pressable
+                  style={styles.sectionAction}
+                  onPress={() =>
+                    runMutation(async () => {
+                      for (const task of section.tasks) {
+                        await completeTask(task.id);
+                      }
+                    })
+                  }
+                >
+                  <Text style={styles.sectionActionText}>Mark all done</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          );
+        }}
         renderItem={({ item }) => (
           <TaskCard
             task={item}
@@ -861,6 +952,64 @@ const styles = StyleSheet.create({
   list: {
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.xl,
+  },
+  sectionHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  sectionToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingVertical: 6,
+    paddingRight: 8,
+  },
+  sectionChevron: {
+    transform: [{ rotate: "0deg" }],
+  },
+  sectionChevronCollapsed: {
+    transform: [{ rotate: "-90deg" }],
+  },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 1.2,
+    color: colors.textSecondary,
+  },
+  sectionCount: {
+    minWidth: 20,
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surfaceRaised,
+    alignItems: "center",
+  },
+  sectionCountPast: {
+    backgroundColor: colors.accentSoft,
+  },
+  sectionCountText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.textSecondary,
+    fontVariant: ["tabular-nums"],
+  },
+  sectionCountTextPast: {
+    color: colors.accent,
+  },
+  sectionAction: {
+    marginLeft: "auto",
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+  },
+  sectionActionText: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+    color: colors.accent,
   },
   card: {
     backgroundColor: colors.surface,

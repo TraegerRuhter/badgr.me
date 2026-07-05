@@ -1,5 +1,6 @@
 import {
   DEFAULT_SETTINGS,
+  groupTasksIntoSections,
   NAG_TONES,
   planNagNotifications,
   planOptionsFrom,
@@ -11,6 +12,7 @@ import {
   type EscalationMode,
   type NagTone,
   type Task,
+  type TaskBucket,
 } from "@alarmed/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -27,6 +29,7 @@ import {
   STORAGE_KEY,
   type NewTaskInput,
 } from "./db/database";
+import { loadCollapsed, saveCollapsed } from "./sections/store";
 import { loadSettings, saveSettings, SETTINGS_KEY } from "./settings/store";
 import { runSync, syncEnabled } from "./sync/supabase";
 import {
@@ -98,6 +101,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<AppSettings>(loadSettings);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState<TaskBucket[]>(loadCollapsed);
 
   // Callbacks read settings through a ref so they stay referentially stable —
   // otherwise every settings tweak would re-run the init effect chain.
@@ -197,6 +201,20 @@ export default function App() {
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, [syncFromDb]);
+
+  // The task list grouped into the collapsible time drawers. Recomputed with
+  // the list itself; "now" is taken at render, which every mutation refreshes.
+  const sections = useMemo(() => groupTasksIntoSections(tasks), [tasks]);
+
+  const toggleSection = useCallback((bucket: TaskBucket) => {
+    setCollapsed((prev) => {
+      const next = prev.includes(bucket)
+        ? prev.filter((b) => b !== bucket)
+        : [...prev, bucket];
+      saveCollapsed(next);
+      return next;
+    });
+  }, []);
 
   // Budget/tone changes must re-arm the pending set (the armed notifications
   // were computed under the old knobs), so every settings write reschedules.
@@ -329,24 +347,67 @@ export default function App() {
         </div>
       </div>
 
-      <ul className="task-list">
-        {tasks.length === 0 ? (
-          <li className="empty-note">No tasks yet — add one above.</li>
-        ) : (
-          tasks.map((task) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              settings={settings}
-              pendingCount={plannedByTask.get(task.id) ?? 0}
-              onComplete={() => runMutation(() => completeTask(task.id))}
-              onReopen={() => runMutation(() => reopenTask(task.id))}
-              onDelete={() => runMutation(() => deleteTask(task.id))}
-              onSnooze={() => handleSnooze(task.id)}
-            />
-          ))
-        )}
-      </ul>
+      {tasks.length === 0 ? (
+        <p className="empty-note">No tasks yet — add one above.</p>
+      ) : (
+        sections.map((section) => {
+          const isCollapsed = collapsed.includes(section.bucket);
+          return (
+            <section
+              key={section.bucket}
+              className={`drawer-section${section.bucket === "past" ? " past" : ""}`}
+            >
+              <div className="section-head">
+                <button
+                  type="button"
+                  className="section-toggle"
+                  aria-expanded={!isCollapsed}
+                  onClick={() => toggleSection(section.bucket)}
+                >
+                  <span
+                    className={`section-chevron${isCollapsed ? " collapsed" : ""}`}
+                  >
+                    <Icon name="chevron" size={16} strokeWidth={2.4} />
+                  </span>
+                  <span className="section-label">{section.label}</span>
+                  <span className="section-count">{section.tasks.length}</span>
+                </button>
+                {section.bucket === "past" ? (
+                  <button
+                    type="button"
+                    className="section-action"
+                    onClick={() =>
+                      runMutation(async () => {
+                        for (const task of section.tasks) {
+                          await completeTask(task.id);
+                        }
+                      })
+                    }
+                  >
+                    Mark all done
+                  </button>
+                ) : null}
+              </div>
+              {isCollapsed ? null : (
+                <ul className="task-list">
+                  {section.tasks.map((task) => (
+                    <TaskCard
+                      key={task.id}
+                      task={task}
+                      settings={settings}
+                      pendingCount={plannedByTask.get(task.id) ?? 0}
+                      onComplete={() => runMutation(() => completeTask(task.id))}
+                      onReopen={() => runMutation(() => reopenTask(task.id))}
+                      onDelete={() => runMutation(() => deleteTask(task.id))}
+                      onSnooze={() => handleSnooze(task.id)}
+                    />
+                  ))}
+                </ul>
+              )}
+            </section>
+          );
+        })
+      )}
 
       {settingsOpen ? (
         <SettingsDrawer
