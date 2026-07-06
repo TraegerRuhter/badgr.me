@@ -1,5 +1,6 @@
 import {
   ADJUST_STEPS,
+  atTimeOfDay,
   DEFAULT_SETTINGS,
   groupTasksIntoSections,
   NAG_TONES,
@@ -10,6 +11,7 @@ import {
   refreshNextOccurrenceCopy,
   SETTING_LIMITS,
   swipeActionFor,
+  TIME_OF_DAY_CHIPS,
   toneLevelOffset,
   WHEN_CHOICES,
   type AppSettings,
@@ -32,8 +34,10 @@ import {
   listTasks,
   reopenTask,
   snoozeTask,
+  updateTask,
   STORAGE_KEY,
   type NewTaskInput,
+  type TaskPatch,
 } from "./db/database";
 import { loadCollapsed, saveCollapsed } from "./sections/store";
 import { loadSettings, saveSettings, SETTINGS_KEY } from "./settings/store";
@@ -114,6 +118,9 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<TaskBucket[]>(loadCollapsed);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const [when, setWhen] = useState<WhenChoice | "custom">("hour");
   const [customWhen, setCustomWhen] = useState<string>(() =>
     toLocalInputValue(quickFireAt("hour"))
@@ -218,9 +225,23 @@ export default function App() {
     return () => window.removeEventListener("storage", onStorage);
   }, [syncFromDb]);
 
-  // The task list grouped into the collapsible time drawers. Recomputed with
-  // the list itself; "now" is taken at render, which every mutation refreshes.
-  const sections = useMemo(() => groupTasksIntoSections(tasks), [tasks]);
+  // The task list grouped into the collapsible time drawers, after the
+  // search filter (title + notes, case-insensitive). "now" is taken at
+  // render, which every mutation refreshes.
+  const sections = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const visible = q
+      ? tasks.filter((t) =>
+          `${t.title} ${t.notes ?? ""}`.toLowerCase().includes(q)
+        )
+      : tasks;
+    return groupTasksIntoSections(visible);
+  }, [tasks, query]);
+
+  const editingTask = useMemo(
+    () => (editingId ? tasks.find((t) => t.id === editingId) ?? null : null),
+    [tasks, editingId]
+  );
 
   const toggleSection = useCallback((bucket: TaskBucket) => {
     setCollapsed((prev) => {
@@ -333,6 +354,19 @@ export default function App() {
         </h1>
         <button
           type="button"
+          className={`icon-btn${searchOpen ? " active" : ""}`}
+          aria-label="Search"
+          onClick={() => {
+            setSearchOpen((open) => {
+              if (open) setQuery("");
+              return !open;
+            });
+          }}
+        >
+          <Icon name="search" size={19} />
+        </button>
+        <button
+          type="button"
           className="icon-btn"
           aria-label="Settings"
           onClick={() => setSettingsOpen(true)}
@@ -345,6 +379,17 @@ export default function App() {
         {armedCount} notification{armedCount === 1 ? "" : "s"} armed
         {permissionGranted === false ? " · notifications denied" : ""}
       </p>
+
+      {searchOpen ? (
+        <input
+          className="field search-field"
+          placeholder="Search tasks and notes…"
+          aria-label="Search tasks"
+          autoFocus
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+      ) : null}
 
       {permissionGranted === false ? (
         <p className="banner-warn">
@@ -415,6 +460,8 @@ export default function App() {
 
       {tasks.length === 0 ? (
         <p className="empty-note">No tasks yet — add one above.</p>
+      ) : sections.length === 0 ? (
+        <p className="empty-note">Nothing matches that search.</p>
       ) : (
         sections.map((section) => {
           const isCollapsed = collapsed.includes(section.bucket);
@@ -467,6 +514,7 @@ export default function App() {
                         setExpandedId((prev) => (prev === task.id ? null : task.id))
                       }
                       onAdjust={(delta) => handleAdjust(task.id, delta)}
+                      onEdit={() => setEditingId(task.id)}
                       onComplete={() => runMutation(() => completeTask(task.id))}
                       onReopen={() => runMutation(() => reopenTask(task.id))}
                       onDelete={() => runMutation(() => deleteTask(task.id))}
@@ -487,6 +535,17 @@ export default function App() {
           onClose={() => setSettingsOpen(false)}
         />
       ) : null}
+
+      {editingTask ? (
+        <EditSheet
+          task={editingTask}
+          onSave={(patch) => {
+            setEditingId(null);
+            void runMutation(() => updateTask(editingTask.id, patch));
+          }}
+          onClose={() => setEditingId(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -498,6 +557,7 @@ interface TaskCardProps {
   expanded: boolean;
   onToggleExpand: () => void;
   onAdjust: (deltaSeconds: number) => void;
+  onEdit: () => void;
   onComplete: () => void;
   onReopen: () => void;
   onDelete: () => void;
@@ -511,6 +571,7 @@ function TaskCard({
   expanded,
   onToggleExpand,
   onAdjust,
+  onEdit,
   onComplete,
   onReopen,
   onDelete,
@@ -616,6 +677,10 @@ function TaskCard({
                 </button>
               ))}
             </div>
+            <button type="button" className="adjust-edit" onClick={onEdit}>
+              <Icon name="pencil" size={14} />
+              Edit task
+            </button>
           </div>
         ) : null}
         <div className="card-actions">
@@ -643,6 +708,214 @@ function TaskCard({
         </div>
       </div>
     </li>
+  );
+}
+
+// Cadence choices offered in the editor; a task whose current interval isn't
+// one of these shows an extra chip for it so the selection is never empty.
+const INTERVAL_CHOICES: readonly { label: string; seconds: number }[] = [
+  { label: "30s", seconds: 30 },
+  { label: "5m", seconds: 300 },
+  { label: "30m", seconds: 1800 },
+  { label: "1h", seconds: 3600 },
+  { label: "3h", seconds: 10800 },
+];
+
+interface EditSheetProps {
+  task: Task;
+  onSave: (patch: TaskPatch) => void;
+  onClose: () => void;
+}
+
+function EditSheet({ task, onSave, onClose }: EditSheetProps) {
+  const [title, setTitle] = useState(task.title);
+  const [notes, setNotes] = useState(task.notes ?? "");
+  const [fireAt, setFireAt] = useState(() =>
+    toLocalInputValue(new Date(task.fireAt))
+  );
+  const [intervalSeconds, setIntervalSeconds] = useState(task.nagIntervalSeconds);
+  const [maxCount, setMaxCount] = useState(task.nagMaxCount ?? 6);
+  const [shrink, setShrink] = useState(task.escalationMode === "shrink");
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const intervals = INTERVAL_CHOICES.some((c) => c.seconds === intervalSeconds)
+    ? INTERVAL_CHOICES
+    : [
+        ...INTERVAL_CHOICES,
+        { label: formatInterval(intervalSeconds), seconds: intervalSeconds },
+      ];
+
+  const setDatePart = (shift: (d: Date) => Date) => {
+    const current = new Date(fireAt);
+    const base = Number.isNaN(current.getTime()) ? new Date() : current;
+    setFireAt(toLocalInputValue(shift(base)));
+  };
+
+  const save = () => {
+    const parsed = new Date(fireAt);
+    onSave({
+      title,
+      notes,
+      fireAt: Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString(),
+      nagIntervalSeconds: intervalSeconds,
+      nagMaxCount: maxCount,
+      escalationMode: shrink ? "shrink" : "none",
+    });
+  };
+
+  return (
+    <>
+      <div className="drawer-backdrop" onClick={onClose} />
+      <aside className="drawer" role="dialog" aria-label="Edit task">
+        <div className="drawer-head">
+          <h2 className="drawer-title">Edit task</h2>
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="Close editor"
+            onClick={onClose}
+          >
+            <Icon name="close" size={18} />
+          </button>
+        </div>
+
+        <label className="editor-label" htmlFor="edit-title">
+          Title
+        </label>
+        <input
+          id="edit-title"
+          className="field"
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+        />
+
+        <label className="editor-label" htmlFor="edit-notes">
+          Notes
+        </label>
+        <textarea
+          id="edit-notes"
+          className="field editor-notes"
+          rows={3}
+          placeholder="Shown as the notification body (instead of the sass)."
+          value={notes}
+          onChange={(event) => setNotes(event.target.value)}
+        />
+
+        <label className="editor-label" htmlFor="edit-when">
+          Fires
+        </label>
+        <input
+          id="edit-when"
+          type="datetime-local"
+          className="field dt-input"
+          value={fireAt}
+          onChange={(event) => setFireAt(event.target.value)}
+        />
+        <div className="when-row">
+          {TIME_OF_DAY_CHIPS.map((chip) => (
+            <button
+              key={chip.label}
+              type="button"
+              className="when-chip"
+              onClick={() => setDatePart((d) => atTimeOfDay(d, chip.hour))}
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
+        <div className="when-row">
+          <button
+            type="button"
+            className="when-chip"
+            onClick={() =>
+              setDatePart((d) => {
+                const today = new Date();
+                today.setHours(d.getHours(), d.getMinutes(), 0, 0);
+                return today;
+              })
+            }
+          >
+            Today
+          </button>
+          <button
+            type="button"
+            className="when-chip"
+            onClick={() =>
+              setDatePart((d) => new Date(d.getTime() + 86_400_000))
+            }
+          >
+            +1 day
+          </button>
+          <button
+            type="button"
+            className="when-chip"
+            onClick={() =>
+              setDatePart((d) => new Date(d.getTime() + 7 * 86_400_000))
+            }
+          >
+            +1 week
+          </button>
+        </div>
+
+        <div className="editor-label">Nag every</div>
+        <div className="when-row">
+          {intervals.map((choice) => (
+            <button
+              key={choice.seconds}
+              type="button"
+              className={`when-chip${intervalSeconds === choice.seconds ? " active" : ""}`}
+              onClick={() => setIntervalSeconds(choice.seconds)}
+            >
+              {choice.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="setting-row">
+          <div>
+            <p className="setting-name">Times</p>
+            <p className="setting-desc">Lifetime cap on this task's nags.</p>
+          </div>
+          <Stepper
+            value={maxCount}
+            min={1}
+            max={20}
+            label="nag count"
+            onChange={setMaxCount}
+          />
+        </div>
+
+        <div className="setting-row">
+          <div>
+            <p className="setting-name">Shrink intervals</p>
+            <p className="setting-desc">Each nag lands sooner than the last.</p>
+          </div>
+          <Switch checked={shrink} label="Shrink intervals" onChange={setShrink} />
+        </div>
+
+        <div className="editor-actions">
+          <button type="button" className="btn btn-quiet" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn btn-accent editor-save"
+            onClick={save}
+            disabled={title.trim().length === 0}
+          >
+            <Icon name="check" size={15} />
+            Save
+          </button>
+        </div>
+      </aside>
+    </>
   );
 }
 

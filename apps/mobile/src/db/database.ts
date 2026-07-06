@@ -281,6 +281,76 @@ export async function deleteTask(id: string): Promise<void> {
   );
 }
 
+export interface TaskPatch {
+  title?: string;
+  notes?: string | null;
+  fireAt?: string;
+  nagIntervalSeconds?: number;
+  nagMaxCount?: number | null;
+  escalationMode?: EscalationMode;
+}
+
+/**
+ * The Edit sheet's save: applies whichever fields changed and bumps
+ * updatedAt so the edit wins last-write-wins sync. Rejects an empty title
+ * rather than persisting an unnameable task.
+ */
+export async function updateTask(
+  id: string,
+  patch: TaskPatch
+): Promise<Task | null> {
+  const task = await getTask(id);
+  if (!task || task.deletedAt != null) return null;
+
+  const next: Task = { ...task };
+  if (patch.title !== undefined && patch.title.trim().length > 0) {
+    next.title = patch.title.trim();
+  }
+  if (patch.notes !== undefined) {
+    const trimmed = patch.notes?.trim() ?? "";
+    next.notes = trimmed.length > 0 ? trimmed : null;
+  }
+  if (patch.fireAt !== undefined && !Number.isNaN(Date.parse(patch.fireAt))) {
+    next.fireAt = patch.fireAt;
+  }
+  if (
+    patch.nagIntervalSeconds !== undefined &&
+    Number.isInteger(patch.nagIntervalSeconds) &&
+    patch.nagIntervalSeconds > 0
+  ) {
+    next.nagIntervalSeconds = patch.nagIntervalSeconds;
+  }
+  if (patch.nagMaxCount !== undefined) {
+    next.nagMaxCount =
+      patch.nagMaxCount != null &&
+      Number.isInteger(patch.nagMaxCount) &&
+      patch.nagMaxCount > 0
+        ? patch.nagMaxCount
+        : null;
+  }
+  if (patch.escalationMode !== undefined) {
+    next.escalationMode = patch.escalationMode;
+  }
+  next.updatedAt = new Date().toISOString();
+
+  const db = await getDb();
+  await db.runAsync(
+    "UPDATE tasks SET title = ?, notes = ?, fire_at = ?, nag_interval_seconds = ?, nag_max_count = ?, escalation_mode = ?, updated_at = ? WHERE id = ?",
+    [
+      next.title,
+      next.notes,
+      next.fireAt,
+      next.nagIntervalSeconds,
+      next.nagMaxCount,
+      next.escalationMode,
+      next.updatedAt,
+      id,
+    ]
+  );
+
+  return next;
+}
+
 /**
  * Single-tap due-date shift from the expanded task panel (±5m/±30m/±1h/±1d).
  * Unlike snooze this doesn't touch snoozeCount — nudging a date isn't

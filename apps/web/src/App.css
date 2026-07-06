@@ -486,6 +486,67 @@
   font-weight: 700;
 }
 
+.search-field {
+  margin-bottom: 12px;
+  animation: reveal 0.16s ease-out;
+}
+
+.icon-btn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ---------- edit sheet ---------- */
+
+.editor-label {
+  display: block;
+  margin: 16px 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--text-dim);
+}
+
+.editor-notes {
+  resize: vertical;
+  min-height: 64px;
+  font-family: inherit;
+}
+
+.editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+.editor-save:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.adjust-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 0;
+  border-radius: 10px;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.adjust-edit:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 /* ---------- expanded quick-adjust panel ---------- */
 
 .adjust-panel {

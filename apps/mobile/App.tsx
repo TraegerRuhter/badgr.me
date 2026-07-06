@@ -1,5 +1,6 @@
 import {
   ADJUST_STEPS,
+  atTimeOfDay,
   groupTasksIntoSections,
   overdueAgeLabel,
   parseNotificationId,
@@ -12,6 +13,7 @@ import {
   DEFAULT_SETTINGS,
   NAG_TONES,
   SETTING_LIMITS,
+  TIME_OF_DAY_CHIPS,
   WHEN_CHOICES,
   type AppSettings,
   type EscalationMode,
@@ -50,7 +52,9 @@ import {
   listTasks,
   reopenTask,
   snoozeTask,
+  updateTask,
   type NewTaskInput,
+  type TaskPatch,
 } from "./src/db/database";
 import {
   configureNotificationHandler,
@@ -130,6 +134,9 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<TaskBucket[]>(["done"]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const [when, setWhen] = useState<WhenChoice | "custom">("hour");
   const [customWhen, setCustomWhen] = useState<Date>(() => quickFireAt("hour"));
 
@@ -231,9 +238,22 @@ export default function App() {
     return () => subscription.remove();
   }, [syncFromDb, backgroundSync]);
 
-  // The task list grouped into the collapsible time drawers; a collapsed
-  // drawer keeps its header but renders no rows.
-  const sections = useMemo(() => groupTasksIntoSections(tasks), [tasks]);
+  // The task list grouped into the collapsible time drawers, after the
+  // search filter; a collapsed drawer keeps its header but renders no rows.
+  const sections = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const visible = q
+      ? tasks.filter((t) =>
+          `${t.title} ${t.notes ?? ""}`.toLowerCase().includes(q)
+        )
+      : tasks;
+    return groupTasksIntoSections(visible);
+  }, [tasks, query]);
+
+  const editingTask = useMemo(
+    () => (editingId ? tasks.find((t) => t.id === editingId) ?? null : null),
+    [tasks, editingId]
+  );
 
   const toggleSection = useCallback((bucket: TaskBucket) => {
     setCollapsed((prev) => {
@@ -354,6 +374,22 @@ export default function App() {
         </Text>
         <Pressable
           style={styles.iconBtn}
+          accessibilityLabel="Search"
+          onPress={() => {
+            setSearchOpen((open) => {
+              if (open) setQuery("");
+              return !open;
+            });
+          }}
+        >
+          <Icon
+            name="search"
+            size={19}
+            color={searchOpen ? colors.accent : colors.textSecondary}
+          />
+        </Pressable>
+        <Pressable
+          style={styles.iconBtn}
           accessibilityLabel="Settings"
           onPress={() => setSettingsOpen(true)}
         >
@@ -367,6 +403,17 @@ export default function App() {
           {permissionGranted === false ? " · notifications denied" : ""}
         </Text>
       </View>
+
+      {searchOpen ? (
+        <TextInput
+          style={[styles.input, styles.searchInput]}
+          placeholder="Search tasks and notes…"
+          placeholderTextColor={colors.textSecondary}
+          value={query}
+          onChangeText={setQuery}
+          autoFocus
+        />
+      ) : null}
 
       {permissionGranted === false ? (
         <Text style={styles.warning}>
@@ -462,7 +509,11 @@ export default function App() {
         contentContainerStyle={styles.list}
         stickySectionHeadersEnabled={false}
         ListEmptyComponent={
-          <Text style={styles.caption}>No tasks yet — add one above.</Text>
+          <Text style={styles.caption}>
+            {query.trim()
+              ? "Nothing matches that search."
+              : "No tasks yet — add one above."}
+          </Text>
         }
         renderSectionHeader={({ section }) => {
           const isCollapsed = collapsed.includes(section.bucket);
@@ -533,6 +584,7 @@ export default function App() {
               setExpandedId((prev) => (prev === item.id ? null : item.id))
             }
             onAdjust={(delta) => handleAdjust(item.id, delta)}
+            onEdit={() => setEditingId(item.id)}
             onComplete={() => runMutation(() => completeTask(item.id))}
             onReopen={() => runMutation(() => reopenTask(item.id))}
             onDelete={() => runMutation(() => deleteTask(item.id))}
@@ -547,8 +599,210 @@ export default function App() {
         onChange={updateSettings}
         onClose={() => setSettingsOpen(false)}
       />
+      {editingTask ? (
+        <EditSheet
+          task={editingTask}
+          onSave={(patch) => {
+            setEditingId(null);
+            void runMutation(() => updateTask(editingTask.id, patch));
+          }}
+          onClose={() => setEditingId(null)}
+        />
+      ) : null}
       <StatusBar style="light" />
     </View>
+  );
+}
+
+// Cadence choices offered in the editor; a task whose current interval isn't
+// one of these shows an extra chip for it so the selection is never empty.
+const INTERVAL_CHOICES: readonly { label: string; seconds: number }[] = [
+  { label: "30s", seconds: 30 },
+  { label: "5m", seconds: 300 },
+  { label: "30m", seconds: 1800 },
+  { label: "1h", seconds: 3600 },
+  { label: "3h", seconds: 10800 },
+];
+
+interface EditSheetProps {
+  task: Task;
+  onSave: (patch: TaskPatch) => void;
+  onClose: () => void;
+}
+
+function EditSheet({ task, onSave, onClose }: EditSheetProps) {
+  const [title, setTitle] = useState(task.title);
+  const [notes, setNotes] = useState(task.notes ?? "");
+  const [fireAt, setFireAt] = useState<Date>(() => {
+    const parsed = new Date(task.fireAt);
+    return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  });
+  const [intervalSeconds, setIntervalSeconds] = useState(task.nagIntervalSeconds);
+  const [maxCount, setMaxCount] = useState(task.nagMaxCount ?? 6);
+  const [shrink, setShrink] = useState(task.escalationMode === "shrink");
+
+  const intervals = INTERVAL_CHOICES.some((c) => c.seconds === intervalSeconds)
+    ? INTERVAL_CHOICES
+    : [
+        ...INTERVAL_CHOICES,
+        { label: formatInterval(intervalSeconds), seconds: intervalSeconds },
+      ];
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.sheetBackdrop} onPress={onClose} />
+      <View style={styles.sheet}>
+        <View style={styles.sheetHandle} />
+        <View style={styles.sheetHead}>
+          <Text style={styles.sheetTitle}>Edit task</Text>
+          <Pressable
+            style={styles.iconBtn}
+            accessibilityLabel="Close editor"
+            onPress={onClose}
+          >
+            <Icon name="close" size={18} color={colors.textSecondary} />
+          </Pressable>
+        </View>
+
+        <ScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
+          <Text style={styles.editorLabel}>TITLE</Text>
+          <TextInput
+            style={styles.input}
+            value={title}
+            onChangeText={setTitle}
+            placeholderTextColor={colors.textSecondary}
+          />
+
+          <Text style={styles.editorLabel}>NOTES</Text>
+          <TextInput
+            style={[styles.input, styles.editorNotes]}
+            value={notes}
+            onChangeText={setNotes}
+            placeholder="Shown as the notification body (instead of the sass)."
+            placeholderTextColor={colors.textSecondary}
+            multiline
+          />
+
+          <Text style={styles.editorLabel}>FIRES</Text>
+          <DateTimePicker
+            value={fireAt}
+            mode="datetime"
+            display="spinner"
+            themeVariant="dark"
+            onChange={(_event, selected) => {
+              if (selected) setFireAt(selected);
+            }}
+          />
+          <View style={styles.whenRow}>
+            {TIME_OF_DAY_CHIPS.map((chip) => (
+              <Pressable
+                key={chip.label}
+                style={styles.whenChip}
+                onPress={() => setFireAt((d) => atTimeOfDay(d, chip.hour))}
+              >
+                <Text style={styles.whenChipText}>{chip.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <View style={styles.whenRow}>
+            <Pressable
+              style={styles.whenChip}
+              onPress={() =>
+                setFireAt((d) => {
+                  const today = new Date();
+                  today.setHours(d.getHours(), d.getMinutes(), 0, 0);
+                  return today;
+                })
+              }
+            >
+              <Text style={styles.whenChipText}>Today</Text>
+            </Pressable>
+            <Pressable
+              style={styles.whenChip}
+              onPress={() => setFireAt((d) => new Date(d.getTime() + 86_400_000))}
+            >
+              <Text style={styles.whenChipText}>+1 day</Text>
+            </Pressable>
+            <Pressable
+              style={styles.whenChip}
+              onPress={() =>
+                setFireAt((d) => new Date(d.getTime() + 7 * 86_400_000))
+              }
+            >
+              <Text style={styles.whenChipText}>+1 week</Text>
+            </Pressable>
+          </View>
+
+          <Text style={styles.editorLabel}>NAG EVERY</Text>
+          <View style={styles.whenRow}>
+            {intervals.map((choice) => (
+              <Pressable
+                key={choice.seconds}
+                style={[
+                  styles.whenChip,
+                  intervalSeconds === choice.seconds && styles.whenChipActive,
+                ]}
+                onPress={() => setIntervalSeconds(choice.seconds)}
+              >
+                <Text
+                  style={[
+                    styles.whenChipText,
+                    intervalSeconds === choice.seconds && styles.whenChipTextActive,
+                  ]}
+                >
+                  {choice.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <View style={styles.settingRow}>
+            <View style={styles.settingText}>
+              <Text style={styles.settingName}>Times</Text>
+              <Text style={styles.settingDesc}>
+                Lifetime cap on this task's nags.
+              </Text>
+            </View>
+            <Stepper
+              value={maxCount}
+              min={1}
+              max={20}
+              label="nag count"
+              onChange={setMaxCount}
+            />
+          </View>
+
+          <View style={styles.settingRow}>
+            <View style={styles.settingText}>
+              <Text style={styles.settingName}>Shrink intervals</Text>
+              <Text style={styles.settingDesc}>
+                Each nag lands sooner than the last.
+              </Text>
+            </View>
+            <Toggle value={shrink} label="Shrink intervals" onChange={setShrink} />
+          </View>
+
+          <View style={styles.editorActions}>
+            <ActionButton icon="close" label="Cancel" tone="quiet" onPress={onClose} />
+            <ActionButton
+              icon="check"
+              label="Save"
+              tone="accent"
+              onPress={() =>
+                onSave({
+                  title,
+                  notes,
+                  fireAt: fireAt.toISOString(),
+                  nagIntervalSeconds: intervalSeconds,
+                  nagMaxCount: maxCount,
+                  escalationMode: shrink ? "shrink" : "none",
+                })
+              }
+            />
+          </View>
+        </ScrollView>
+      </View>
+    </Modal>
   );
 }
 
@@ -559,6 +813,7 @@ interface TaskCardProps {
   expanded: boolean;
   onToggleExpand: () => void;
   onAdjust: (deltaSeconds: number) => void;
+  onEdit: () => void;
   onComplete: () => void;
   onReopen: () => void;
   onDelete: () => void;
@@ -572,6 +827,7 @@ function TaskCard({
   expanded,
   onToggleExpand,
   onAdjust,
+  onEdit,
   onComplete,
   onReopen,
   onDelete,
@@ -692,6 +948,16 @@ function TaskCard({
                 </Pressable>
               ))}
             </View>
+            <Pressable
+              style={({ pressed }) => [
+                styles.adjustEdit,
+                pressed && styles.adjustBtnPressed,
+              ]}
+              onPress={onEdit}
+            >
+              <Icon name="pencil" size={14} color={colors.textSecondary} />
+              <Text style={styles.adjustEditText}>Edit task</Text>
+            </Pressable>
           </View>
         ) : null}
       </Pressable>
@@ -1074,6 +1340,45 @@ const styles = StyleSheet.create({
   metaOverdue: {
     color: colors.danger,
     fontWeight: "700",
+  },
+  searchInput: {
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  editorLabel: {
+    marginTop: 16,
+    marginBottom: 6,
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 1.2,
+    color: colors.textSecondary,
+  },
+  editorNotes: {
+    minHeight: 64,
+    textAlignVertical: "top",
+  },
+  editorActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: spacing.sm,
+    marginTop: 22,
+    marginBottom: 8,
+  },
+  adjustEdit: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: colors.border,
+  },
+  adjustEditText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.textSecondary,
   },
   adjustPanel: {
     marginTop: 12,

@@ -212,6 +212,62 @@ export async function snoozeTask(
   return task;
 }
 
+export interface TaskPatch {
+  title?: string;
+  notes?: string | null;
+  fireAt?: string;
+  nagIntervalSeconds?: number;
+  nagMaxCount?: number | null;
+  escalationMode?: EscalationMode;
+}
+
+/**
+ * The Edit sheet's save: applies whichever fields changed and bumps
+ * updatedAt so the edit wins last-write-wins sync. Rejects an empty title
+ * rather than persisting an unnameable task.
+ */
+export async function updateTask(
+  id: string,
+  patch: TaskPatch
+): Promise<Task | null> {
+  const tasks = readAll();
+  const task = tasks.find((t) => t.id === id);
+  if (!task || task.deletedAt != null) return null;
+
+  if (patch.title !== undefined && patch.title.trim().length > 0) {
+    task.title = patch.title.trim();
+  }
+  if (patch.notes !== undefined) {
+    const trimmed = patch.notes?.trim() ?? "";
+    task.notes = trimmed.length > 0 ? trimmed : null;
+  }
+  if (patch.fireAt !== undefined && !Number.isNaN(Date.parse(patch.fireAt))) {
+    task.fireAt = patch.fireAt;
+  }
+  if (
+    patch.nagIntervalSeconds !== undefined &&
+    Number.isInteger(patch.nagIntervalSeconds) &&
+    patch.nagIntervalSeconds > 0
+  ) {
+    task.nagIntervalSeconds = patch.nagIntervalSeconds;
+  }
+  if (patch.nagMaxCount !== undefined) {
+    task.nagMaxCount =
+      patch.nagMaxCount != null &&
+      Number.isInteger(patch.nagMaxCount) &&
+      patch.nagMaxCount > 0
+        ? patch.nagMaxCount
+        : null;
+  }
+  if (patch.escalationMode !== undefined) {
+    task.escalationMode = patch.escalationMode;
+  }
+  task.updatedAt = new Date().toISOString();
+  writeAll(tasks);
+
+  return task;
+}
+
 /**
  * Single-tap due-date shift from the expanded task panel (±5m/±30m/±1h/±1d).
  * Unlike snooze this doesn't touch snoozeCount — nudging a date isn't
