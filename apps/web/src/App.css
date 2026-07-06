@@ -163,6 +163,58 @@
   box-shadow: 0 0 0 3px rgba(240, 163, 47, 0.22);
 }
 
+/* Composer controls stay hidden until there's a title — the field is the
+   whole interface until you commit to typing. */
+.composer-reveal {
+  animation: reveal 0.18s ease-out;
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.when-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.when-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.1px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.when-chip:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+
+.when-chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.dt-input {
+  margin-top: 8px;
+  color-scheme: dark;
+}
+
 .chip-row {
   display: flex;
   gap: 8px;
@@ -427,6 +479,64 @@
 .armed-badge.zero {
   background: var(--surface-raised);
   color: var(--text-dim);
+}
+
+.meta-overdue {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+/* ---------- expanded quick-adjust panel ---------- */
+
+.adjust-panel {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: reveal 0.16s ease-out;
+}
+
+.adjust-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.adjust-btn {
+  padding: 8px 0;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s, transform 0.1s;
+}
+
+.adjust-btn:active {
+  transform: scale(0.95);
+}
+
+.adjust-btn.minus {
+  color: var(--text-dim);
+}
+
+.adjust-btn.minus:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+
+.adjust-btn.plus {
+  color: var(--accent);
+  border-color: rgba(240, 163, 47, 0.35);
+}
+
+.adjust-btn.plus:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
 }
 
 /* ---------- card action buttons ---------- */

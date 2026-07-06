@@ -1,5 +1,6 @@
 import {
   applySnooze,
+  shiftFireAt,
   type DeviceOrigin,
   type EscalationMode,
   type LocalTaskStore,
@@ -278,6 +279,30 @@ export async function deleteTask(id: string): Promise<void> {
     "UPDATE tasks SET deleted_at = ?, updated_at = ? WHERE id = ?",
     [now, now, id]
   );
+}
+
+/**
+ * Single-tap due-date shift from the expanded task panel (±5m/±30m/±1h/±1d).
+ * Unlike snooze this doesn't touch snoozeCount — nudging a date isn't
+ * procrastination, so it shouldn't sharpen the copy ladder.
+ */
+export async function adjustTaskFireAt(
+  id: string,
+  deltaSeconds: number
+): Promise<Task | null> {
+  const task = await getTask(id);
+  if (!task || task.completedAt != null || task.deletedAt != null) return null;
+
+  const fireAt = shiftFireAt(task, deltaSeconds);
+  const updatedAt = new Date().toISOString();
+
+  const db = await getDb();
+  await db.runAsync(
+    "UPDATE tasks SET fire_at = ?, updated_at = ? WHERE id = ?",
+    [fireAt, updatedAt, id]
+  );
+
+  return { ...task, fireAt, updatedAt };
 }
 
 /**
