@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { quickFireAt } from "./composer";
+import { atTimeOfDay, quickFireAt } from "./composer";
 
 describe("quickFireAt", () => {
   it("'now' fires seconds out, 'hour' exactly an hour out", () => {
@@ -28,5 +28,16 @@ describe("quickFireAt", () => {
     const morning = quickFireAt("tomorrow", now);
     expect(morning.getDate()).toBe(9);
     expect(morning.getHours()).toBe(9);
+  });
+});
+
+describe("atTimeOfDay", () => {
+  it("keeps the calendar day and swaps the hour sharp", () => {
+    const base = new Date(2026, 6, 10, 14, 45, 30);
+    const at7 = atTimeOfDay(base, 7);
+    expect(at7.getDate()).toBe(10);
+    expect(at7.getHours()).toBe(7);
+    expect(at7.getMinutes()).toBe(0);
+    expect(at7.getSeconds()).toBe(0);
   });
 });

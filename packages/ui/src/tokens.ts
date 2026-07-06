@@ -68,6 +68,10 @@ export const iconPaths = {
   close: "M6 6l12 12M18 6L6 18",
   /** Downward chevron — section drawers rotate it when collapsed. */
   chevron: "M6 9.5l6 6 6-6",
+  /** Magnifier — search. */
+  search: "M10.5 3.5a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM15.6 15.6l4.9 4.9",
+  /** Pencil — edit. */
+  pencil: "M4 20l.9-3.6L15.6 5.7a2 2 0 0 1 2.8 0l-.1-.1a2 2 0 0 1 0 2.8L7.6 19.1L4 20zM13.5 7.8l2.7 2.7",
   plus: "M12 5v14M5 12h14",
   /** Lightning bolt — the fast preset. */
   bolt: "M13.5 3L5.5 13.5h5L9.5 21l8-10.5h-5l1-7.5z",

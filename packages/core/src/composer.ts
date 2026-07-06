@@ -16,6 +16,21 @@ export const WHEN_CHOICES: readonly { id: WhenChoice; label: string }[] = [
 const TONIGHT_HOUR = 21;
 const MORNING_HOUR = 9;
 
+/** The editor's time-of-day quick row (the reference deck's 07/12/17/21). */
+export const TIME_OF_DAY_CHIPS: readonly { label: string; hour: number }[] = [
+  { label: "07:00", hour: 7 },
+  { label: "12:00", hour: 12 },
+  { label: "17:00", hour: 17 },
+  { label: "21:00", hour: 21 },
+];
+
+/** Same calendar day as `base`, at the given hour sharp (local time). */
+export function atTimeOfDay(base: Date, hour: number): Date {
+  const result = new Date(base);
+  result.setHours(hour, 0, 0, 0);
+  return result;
+}
+
 /**
  * Resolves a quick choice to a concrete fire time.
  * - "now" fires in 10s — long enough to lock the phone, short enough to
