@@ -90,7 +90,7 @@ export async function cancelTaskNotifications(taskId: string): Promise<void> {
   );
 }
 
-/** Cancels only Alarmed's nags, leaving any unrelated notifications untouched. */
+/** Cancels only badgr.me's nags, leaving any unrelated notifications untouched. */
 async function cancelAllNagNotifications(): Promise<void> {
   const scheduled = await Notifications.getAllScheduledNotificationsAsync();
   await Promise.all(

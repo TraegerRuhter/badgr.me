@@ -3,23 +3,23 @@
  * react-native-web) so both the Expo app and the Vite PWA can import the
  * same values without needing a shared component-rendering layer yet.
  *
- * Identity: "midnight ember" — an alarm going off in a dark room. Deep ink
- * surfaces, warm cream text, a single hot ember accent that gets all the
- * attention, alarm-pink for destructive actions.
+ * Identity: badgr.me wears a badger's coat — charcoal fur for the surfaces,
+ * the cream head-stripe for text, silvered grey for secondary, and one
+ * honey-amber accent (honey badger energy: it does not let things go).
+ * Rusty red for destructive actions.
  */
 export const colors = {
-  background: "#131020",
-  surface: "#1D1930",
-  surfaceRaised: "#282242",
-  textPrimary: "#F5F1E8",
-  textSecondary: "#9C94B8",
-  accent: "#FF6B4A",
-  accentSoft: "#38222E",
-  onAccent: "#20100A",
-  danger: "#FF5D8F",
-  dangerSoft: "#341C2E",
-  warning: "#FFB84A",
-  border: "#332C4E",
+  background: "#17181A",
+  surface: "#212227",
+  surfaceRaised: "#2B2D33",
+  textPrimary: "#F4F2EA",
+  textSecondary: "#9BA0A8",
+  accent: "#F0A32F",
+  accentSoft: "#342811",
+  onAccent: "#201603",
+  danger: "#E4574F",
+  dangerSoft: "#351B1B",
+  border: "#34373E",
 } as const;
 
 export const spacing = {
