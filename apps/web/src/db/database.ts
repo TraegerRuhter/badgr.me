@@ -1,4 +1,10 @@
-import { applySnooze, type LocalTaskStore, type EscalationMode, type Task } from "@alarmed/core";
+import {
+  applySnooze,
+  shiftFireAt,
+  type LocalTaskStore,
+  type EscalationMode,
+  type Task,
+} from "@alarmed/core";
 
 /**
  * Local persistence — the web counterpart to
@@ -200,6 +206,26 @@ export async function snoozeTask(
   const { fireAt, snoozeCount } = applySnooze(task, options);
   task.fireAt = fireAt.toISOString();
   task.snoozeCount = snoozeCount;
+  task.updatedAt = new Date().toISOString();
+  writeAll(tasks);
+
+  return task;
+}
+
+/**
+ * Single-tap due-date shift from the expanded task panel (±5m/±30m/±1h/±1d).
+ * Unlike snooze this doesn't touch snoozeCount — nudging a date isn't
+ * procrastination, so it shouldn't sharpen the copy ladder.
+ */
+export async function adjustTaskFireAt(
+  id: string,
+  deltaSeconds: number
+): Promise<Task | null> {
+  const tasks = readAll();
+  const task = tasks.find((t) => t.id === id);
+  if (!task || task.completedAt != null || task.deletedAt != null) return null;
+
+  task.fireAt = shiftFireAt(task, deltaSeconds);
   task.updatedAt = new Date().toISOString();
   writeAll(tasks);
 

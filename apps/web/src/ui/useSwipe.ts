@@ -13,6 +13,12 @@ interface SwipeState {
   offset: number;
   /** True while the pointer is down and committed to a horizontal drag. */
   dragging: boolean;
+  /**
+   * True (and self-clearing) right after a committed drag ends — the click
+   * event the browser fires after that drag isn't a tap and must not
+   * trigger tap actions like expanding the card.
+   */
+  didJustDrag: () => boolean;
   handlers: {
     onPointerDown: (e: PointerEvent<HTMLElement>) => void;
     onPointerMove: (e: PointerEvent<HTMLElement>) => void;
@@ -41,6 +47,7 @@ export function useSwipe({
   const [dragging, setDragging] = useState(false);
   const start = useRef<{ x: number; y: number; id: number } | null>(null);
   const committed = useRef(false);
+  const justDragged = useRef(false);
 
   const reset = useCallback(() => {
     start.current = null;
@@ -94,6 +101,7 @@ export function useSwipe({
       const s = start.current;
       if (!s || e.pointerId !== s.id) return;
       if (committed.current) {
+        justDragged.current = true;
         const dx = e.clientX - s.x;
         if (dx > threshold && onSwipeRight) onSwipeRight();
         else if (dx < -threshold && onSwipeLeft) onSwipeLeft();
@@ -105,9 +113,16 @@ export function useSwipe({
 
   const onPointerCancel = useCallback(() => reset(), [reset]);
 
+  const didJustDrag = useCallback(() => {
+    const was = justDragged.current;
+    justDragged.current = false;
+    return was;
+  }, []);
+
   return {
     offset,
     dragging,
+    didJustDrag,
     handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel },
   };
 }

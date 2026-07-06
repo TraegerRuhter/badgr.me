@@ -1,21 +1,27 @@
 import {
+  ADJUST_STEPS,
   groupTasksIntoSections,
+  overdueAgeLabel,
   parseNotificationId,
   planNagNotifications,
   planOptionsFrom,
+  quickFireAt,
   refreshNextOccurrenceCopy,
   swipeActionFor,
   toneLevelOffset,
   DEFAULT_SETTINGS,
   NAG_TONES,
   SETTING_LIMITS,
+  WHEN_CHOICES,
   type AppSettings,
   type EscalationMode,
   type NagTone,
   type Task,
   type TaskBucket,
+  type WhenChoice,
 } from "@alarmed/core";
 import { colors, radii, spacing, typography, type IconName } from "@alarmed/ui";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { StatusBar } from "expo-status-bar";
 import * as Notifications from "expo-notifications";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -35,6 +41,7 @@ import {
 import { nagCopyGenerator } from "./src/copy/nagAi";
 import { runSync, syncEnabled } from "./src/sync/supabase";
 import {
+  adjustTaskFireAt,
   completeTask,
   createTask,
   deleteTask,
@@ -69,36 +76,33 @@ interface Preset {
   label: string;
   sub: string;
   icon: IconName;
-  firstDelayMs: number;
   intervalSeconds: number;
   nagMaxCount: number;
   escalationMode?: EscalationMode;
 }
 
-// Quick-add presets — same set as the web app's, so a task built from a
-// given preset behaves identically on either platform.
+// Nag-cadence presets — *when* the task fires comes from the when-chips;
+// these only decide how relentlessly it re-fires afterward. Same set as the
+// web app's, so a task behaves identically on either platform.
 const PRESETS: Preset[] = [
   {
     label: "Rapid",
-    sub: "10s · 30s × 5",
+    sub: "every 30s × 5",
     icon: "bolt",
-    firstDelayMs: 10_000,
     intervalSeconds: 30,
     nagMaxCount: 5,
   },
   {
     label: "Hourly",
-    sub: "1m · 1h × 6",
+    sub: "every 1h × 6",
     icon: "clock",
-    firstDelayMs: 60_000,
     intervalSeconds: 3600,
     nagMaxCount: 6,
   },
   {
     label: "Shrink",
-    sub: "10s · 1m × 6",
+    sub: "1m, tightening × 6",
     icon: "shrink",
-    firstDelayMs: 10_000,
     intervalSeconds: 60,
     nagMaxCount: 6,
     escalationMode: "shrink",
@@ -125,6 +129,9 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<TaskBucket[]>(["done"]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [when, setWhen] = useState<WhenChoice | "custom">("hour");
+  const [customWhen, setCustomWhen] = useState<Date>(() => quickFireAt("hour"));
 
   useEffect(() => {
     let cancelled = false;
@@ -267,17 +274,25 @@ export default function App() {
 
   const addPreset = useCallback(
     (preset: Preset) => {
+      const fireAt = when === "custom" ? customWhen : quickFireAt(when);
       const input: NewTaskInput = {
         title: title.trim() || "Reminder",
-        fireAt: new Date(Date.now() + preset.firstDelayMs).toISOString(),
+        fireAt: fireAt.toISOString(),
         nagIntervalSeconds: preset.intervalSeconds,
         nagMaxCount: preset.nagMaxCount,
         escalationMode: preset.escalationMode,
       };
       setTitle("");
+      setWhen("hour");
       void runMutation(() => createTask(input));
     },
-    [title, runMutation]
+    [title, when, customWhen, runMutation]
+  );
+
+  const handleAdjust = useCallback(
+    (taskId: string, deltaSeconds: number) =>
+      runMutation(() => adjustTaskFireAt(taskId, deltaSeconds)),
+    [runMutation]
   );
 
   const handleSnooze = useCallback(
@@ -370,19 +385,72 @@ export default function App() {
           onChangeText={setTitle}
           returnKeyType="done"
         />
-        <View style={styles.presetRow}>
-          {PRESETS.map((preset) => (
-            <Pressable
-              key={preset.label}
-              style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
-              onPress={() => addPreset(preset)}
-            >
-              <Icon name={preset.icon} size={20} color={colors.accent} />
-              <Text style={styles.chipLabel}>{preset.label}</Text>
-              <Text style={styles.chipSub}>{preset.sub}</Text>
-            </Pressable>
-          ))}
-        </View>
+        {title.trim().length > 0 ? (
+          <>
+            <View style={styles.whenRow}>
+              {WHEN_CHOICES.map((choice) => (
+                <Pressable
+                  key={choice.id}
+                  style={[styles.whenChip, when === choice.id && styles.whenChipActive]}
+                  onPress={() => setWhen(choice.id)}
+                >
+                  <Text
+                    style={[
+                      styles.whenChipText,
+                      when === choice.id && styles.whenChipTextActive,
+                    ]}
+                  >
+                    {choice.label}
+                  </Text>
+                </Pressable>
+              ))}
+              <Pressable
+                style={[styles.whenChip, when === "custom" && styles.whenChipActive]}
+                onPress={() => setWhen("custom")}
+              >
+                <Icon
+                  name="clock"
+                  size={13}
+                  strokeWidth={2.4}
+                  color={when === "custom" ? colors.onAccent : colors.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.whenChipText,
+                    when === "custom" && styles.whenChipTextActive,
+                  ]}
+                >
+                  Pick…
+                </Text>
+              </Pressable>
+            </View>
+            {when === "custom" ? (
+              <DateTimePicker
+                value={customWhen}
+                mode="datetime"
+                display="spinner"
+                minimumDate={new Date()}
+                themeVariant="dark"
+                onChange={(_event, selected) => {
+                  if (selected) setCustomWhen(selected);
+                }}
+              />
+            ) : null}
+            <View style={styles.presetRow}>
+              {PRESETS.map((preset) => (
+                <Pressable
+                  key={preset.label}
+                  style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
+                  onPress={() => addPreset(preset)}
+                >
+                  <Icon name={preset.icon} size={20} color={colors.accent} />
+                  <Text style={styles.chipLabel}>{preset.label}</Text>
+                  <Text style={styles.chipSub}>{preset.sub}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </>
+        ) : null}
       </View>
 
       <SectionList
@@ -460,6 +528,11 @@ export default function App() {
             task={item}
             settings={settings}
             pendingCount={plannedByTask.get(item.id) ?? 0}
+            expanded={expandedId === item.id}
+            onToggleExpand={() =>
+              setExpandedId((prev) => (prev === item.id ? null : item.id))
+            }
+            onAdjust={(delta) => handleAdjust(item.id, delta)}
             onComplete={() => runMutation(() => completeTask(item.id))}
             onReopen={() => runMutation(() => reopenTask(item.id))}
             onDelete={() => runMutation(() => deleteTask(item.id))}
@@ -483,6 +556,9 @@ interface TaskCardProps {
   task: Task;
   settings: AppSettings;
   pendingCount: number;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  onAdjust: (deltaSeconds: number) => void;
   onComplete: () => void;
   onReopen: () => void;
   onDelete: () => void;
@@ -493,12 +569,16 @@ function TaskCard({
   task,
   settings,
   pendingCount,
+  expanded,
+  onToggleExpand,
+  onAdjust,
   onComplete,
   onReopen,
   onDelete,
   onSnooze,
 }: TaskCardProps) {
   const done = task.completedAt != null;
+  const ageLabel = done ? "" : overdueAgeLabel(task.fireAt);
 
   // A done task can only be swiped back open; an open task maps each side
   // through the (possibly swapped) gesture settings.
@@ -528,7 +608,12 @@ function TaskCard({
       rightIcon={rightIcon}
       leftIcon={leftIcon}
     >
-      <View style={styles.card}>
+      <Pressable
+        style={styles.card}
+        disabled={done}
+        onPress={onToggleExpand}
+        accessibilityHint="Expands quick due-date adjustments"
+      >
         <View style={[styles.cardRail, done && styles.cardRailDone]} />
         <Text style={[styles.title, done && styles.titleDone]}>{task.title}</Text>
         <View style={styles.metaRow}>
@@ -538,8 +623,9 @@ function TaskCard({
             </Text>
           ) : (
             <>
-              <Text style={styles.caption}>
-                Fires {formatDateTime(task.fireAt)} · every{" "}
+              <Text style={[styles.caption, ageLabel ? styles.metaOverdue : null]}>
+                Fires {formatDateTime(task.fireAt)}
+                {ageLabel ? ` ${ageLabel}` : ""} · every{" "}
                 {formatInterval(task.nagIntervalSeconds)}
               </Text>
               <View
@@ -575,7 +661,40 @@ function TaskCard({
           <View style={styles.actionsSpacer} />
           <ActionButton icon="trash" label="Delete" tone="danger" onPress={onDelete} />
         </View>
-      </View>
+        {expanded && !done ? (
+          <View style={styles.adjustPanel}>
+            <View style={styles.adjustRow}>
+              {ADJUST_STEPS.map((step) => (
+                <Pressable
+                  key={`minus-${step.label}`}
+                  style={({ pressed }) => [
+                    styles.adjustBtn,
+                    pressed && styles.adjustBtnPressed,
+                  ]}
+                  onPress={() => onAdjust(-step.seconds)}
+                >
+                  <Text style={styles.adjustBtnTextMinus}>−{step.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <View style={styles.adjustRow}>
+              {ADJUST_STEPS.map((step) => (
+                <Pressable
+                  key={`plus-${step.label}`}
+                  style={({ pressed }) => [
+                    styles.adjustBtn,
+                    styles.adjustBtnPlus,
+                    pressed && styles.adjustBtnPressed,
+                  ]}
+                  onPress={() => onAdjust(step.seconds)}
+                >
+                  <Text style={styles.adjustBtnTextPlus}>+{step.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        ) : null}
+      </Pressable>
     </SwipeableCard>
   );
 }
@@ -921,6 +1040,79 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.sm,
     marginTop: 10,
+  },
+  whenRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 10,
+  },
+  whenChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  whenChipActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  whenChipText: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    letterSpacing: 0.1,
+    color: colors.textSecondary,
+  },
+  whenChipTextActive: {
+    color: colors.onAccent,
+  },
+  metaOverdue: {
+    color: colors.danger,
+    fontWeight: "700",
+  },
+  adjustPanel: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    gap: 6,
+  },
+  adjustRow: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  adjustBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceRaised,
+    alignItems: "center",
+  },
+  adjustBtnPlus: {
+    borderColor: "rgba(240, 163, 47, 0.35)",
+  },
+  adjustBtnPressed: {
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.accent,
+  },
+  adjustBtnTextMinus: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.textSecondary,
+    fontVariant: ["tabular-nums"],
+  },
+  adjustBtnTextPlus: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.accent,
+    fontVariant: ["tabular-nums"],
   },
   chip: {
     flex: 1,

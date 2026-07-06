@@ -1,23 +1,29 @@
 import {
+  ADJUST_STEPS,
   DEFAULT_SETTINGS,
   groupTasksIntoSections,
   NAG_TONES,
+  overdueAgeLabel,
   planNagNotifications,
   planOptionsFrom,
+  quickFireAt,
   refreshNextOccurrenceCopy,
   SETTING_LIMITS,
   swipeActionFor,
   toneLevelOffset,
+  WHEN_CHOICES,
   type AppSettings,
   type EscalationMode,
   type NagTone,
   type Task,
   type TaskBucket,
+  type WhenChoice,
 } from "@alarmed/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { nagCopyGenerator } from "./copy/nagAi";
 import {
+  adjustTaskFireAt,
   completeTask,
   createTask,
   deleteTask,
@@ -46,41 +52,46 @@ interface Preset {
   label: string;
   sub: string;
   icon: IconName;
-  firstDelayMs: number;
   intervalSeconds: number;
   nagMaxCount: number;
   escalationMode?: EscalationMode;
 }
 
-// Quick-add presets — same set as the native app's, so a task built from a
-// given preset behaves identically on either platform.
+// Nag-cadence presets — *when* the task fires comes from the when-chips;
+// these only decide how relentlessly it re-fires afterward. Same set as the
+// native app's, so a task behaves identically on either platform.
 const PRESETS: Preset[] = [
   {
     label: "Rapid",
-    sub: "10s · 30s × 5",
+    sub: "every 30s × 5",
     icon: "bolt",
-    firstDelayMs: 10_000,
     intervalSeconds: 30,
     nagMaxCount: 5,
   },
   {
     label: "Hourly",
-    sub: "1m · 1h × 6",
+    sub: "every 1h × 6",
     icon: "clock",
-    firstDelayMs: 60_000,
     intervalSeconds: 3600,
     nagMaxCount: 6,
   },
   {
     label: "Shrink",
-    sub: "10s · 1m × 6",
+    sub: "1m, tightening × 6",
     icon: "shrink",
-    firstDelayMs: 10_000,
     intervalSeconds: 60,
     nagMaxCount: 6,
     escalationMode: "shrink",
   },
 ];
+
+/** datetime-local wants "YYYY-MM-DDTHH:mm" in local time. */
+function toLocalInputValue(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate()
+  )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString();
@@ -102,6 +113,11 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings>(loadSettings);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<TaskBucket[]>(loadCollapsed);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [when, setWhen] = useState<WhenChoice | "custom">("hour");
+  const [customWhen, setCustomWhen] = useState<string>(() =>
+    toLocalInputValue(quickFireAt("hour"))
+  );
 
   // Callbacks read settings through a ref so they stay referentially stable —
   // otherwise every settings tweak would re-run the init effect chain.
@@ -245,17 +261,33 @@ export default function App() {
 
   const addPreset = useCallback(
     (preset: Preset) => {
+      const fireAt =
+        when === "custom"
+          ? new Date(customWhen)
+          : quickFireAt(when);
+      // An unparseable custom value falls back to the default choice rather
+      // than creating a task that fires "now" by accident.
+      const resolved = Number.isNaN(fireAt.getTime())
+        ? quickFireAt("hour")
+        : fireAt;
       const input: NewTaskInput = {
         title: title.trim() || "Reminder",
-        fireAt: new Date(Date.now() + preset.firstDelayMs).toISOString(),
+        fireAt: resolved.toISOString(),
         nagIntervalSeconds: preset.intervalSeconds,
         nagMaxCount: preset.nagMaxCount,
         escalationMode: preset.escalationMode,
       };
       setTitle("");
+      setWhen("hour");
       void runMutation(() => createTask(input));
     },
-    [title, runMutation]
+    [title, when, customWhen, runMutation]
+  );
+
+  const handleAdjust = useCallback(
+    (taskId: string, deltaSeconds: number) =>
+      runMutation(() => adjustTaskFireAt(taskId, deltaSeconds)),
+    [runMutation]
   );
 
   const handleSnooze = useCallback(
@@ -329,22 +361,56 @@ export default function App() {
           value={title}
           onChange={(event) => setTitle(event.target.value)}
         />
-        <div className="chip-row">
-          {PRESETS.map((preset) => (
-            <button
-              key={preset.label}
-              type="button"
-              className="chip"
-              onClick={() => addPreset(preset)}
-            >
-              <span className="chip-icon">
-                <Icon name={preset.icon} size={20} />
-              </span>
-              <span className="chip-label">{preset.label}</span>
-              <span className="chip-sub">{preset.sub}</span>
-            </button>
-          ))}
-        </div>
+        {title.trim().length > 0 ? (
+          <div className="composer-reveal">
+            <div className="when-row">
+              {WHEN_CHOICES.map((choice) => (
+                <button
+                  key={choice.id}
+                  type="button"
+                  className={`when-chip${when === choice.id ? " active" : ""}`}
+                  onClick={() => setWhen(choice.id)}
+                >
+                  {choice.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                className={`when-chip${when === "custom" ? " active" : ""}`}
+                onClick={() => setWhen("custom")}
+              >
+                <Icon name="clock" size={13} strokeWidth={2.4} />
+                Pick…
+              </button>
+            </div>
+            {when === "custom" ? (
+              <input
+                type="datetime-local"
+                className="field dt-input"
+                aria-label="Fire date and time"
+                value={customWhen}
+                min={toLocalInputValue(new Date())}
+                onChange={(event) => setCustomWhen(event.target.value)}
+              />
+            ) : null}
+            <div className="chip-row">
+              {PRESETS.map((preset) => (
+                <button
+                  key={preset.label}
+                  type="button"
+                  className="chip"
+                  onClick={() => addPreset(preset)}
+                >
+                  <span className="chip-icon">
+                    <Icon name={preset.icon} size={20} />
+                  </span>
+                  <span className="chip-label">{preset.label}</span>
+                  <span className="chip-sub">{preset.sub}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {tasks.length === 0 ? (
@@ -396,6 +462,11 @@ export default function App() {
                       task={task}
                       settings={settings}
                       pendingCount={plannedByTask.get(task.id) ?? 0}
+                      expanded={expandedId === task.id}
+                      onToggleExpand={() =>
+                        setExpandedId((prev) => (prev === task.id ? null : task.id))
+                      }
+                      onAdjust={(delta) => handleAdjust(task.id, delta)}
                       onComplete={() => runMutation(() => completeTask(task.id))}
                       onReopen={() => runMutation(() => reopenTask(task.id))}
                       onDelete={() => runMutation(() => deleteTask(task.id))}
@@ -424,6 +495,9 @@ interface TaskCardProps {
   task: Task;
   settings: AppSettings;
   pendingCount: number;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  onAdjust: (deltaSeconds: number) => void;
   onComplete: () => void;
   onReopen: () => void;
   onDelete: () => void;
@@ -434,12 +508,16 @@ function TaskCard({
   task,
   settings,
   pendingCount,
+  expanded,
+  onToggleExpand,
+  onAdjust,
   onComplete,
   onReopen,
   onDelete,
   onSnooze,
 }: TaskCardProps) {
   const done = task.completedAt != null;
+  const ageLabel = done ? "" : overdueAgeLabel(task.fireAt);
 
   // A done task can only be swiped back open; an open task maps each side
   // through the (possibly swapped) gesture settings.
@@ -461,7 +539,7 @@ function TaskCard({
   const leftIcon: IconName =
     !done && swipeActionFor(settings, "left") === "complete" ? "check" : "snooze";
 
-  const { offset, dragging, handlers } = useSwipe({
+  const { offset, dragging, didJustDrag, handlers } = useSwipe({
     enabled: settings.gestures.swipeEnabled,
     onSwipeRight: rightAction,
     onSwipeLeft: leftAction,
@@ -484,8 +562,14 @@ function TaskCard({
         <Icon name={leftIcon} size={22} />
       </div>
       <div
-        className={`task-card${done ? " done" : ""}${dragging ? " dragging" : ""}`}
+        className={`task-card${done ? " done" : ""}${dragging ? " dragging" : ""}${expanded ? " expanded" : ""}`}
         style={{ transform: `translateX(${offset}px)` }}
+        onClick={(e) => {
+          // Buttons keep their own actions; a completed swipe isn't a tap.
+          if ((e.target as HTMLElement).closest("button")) return;
+          if (didJustDrag()) return;
+          if (!done) onToggleExpand();
+        }}
         {...handlers}
       >
         <p className="task-title">{task.title}</p>
@@ -494,8 +578,9 @@ function TaskCard({
             <span>Done {formatDateTime(task.completedAt as string)}</span>
           ) : (
             <>
-              <span>
-                Fires {formatDateTime(task.fireAt)} · every{" "}
+              <span className={ageLabel ? "meta-overdue" : undefined}>
+                Fires {formatDateTime(task.fireAt)}
+                {ageLabel ? ` ${ageLabel}` : ""} · every{" "}
                 {formatInterval(task.nagIntervalSeconds)}
               </span>
               <span className={`armed-badge${pendingCount === 0 ? " zero" : ""}`}>
@@ -505,6 +590,34 @@ function TaskCard({
             </>
           )}
         </p>
+        {expanded && !done ? (
+          <div className="adjust-panel">
+            <div className="adjust-row">
+              {ADJUST_STEPS.map((step) => (
+                <button
+                  key={`minus-${step.label}`}
+                  type="button"
+                  className="adjust-btn minus"
+                  onClick={() => onAdjust(-step.seconds)}
+                >
+                  −{step.label}
+                </button>
+              ))}
+            </div>
+            <div className="adjust-row">
+              {ADJUST_STEPS.map((step) => (
+                <button
+                  key={`plus-${step.label}`}
+                  type="button"
+                  className="adjust-btn plus"
+                  onClick={() => onAdjust(step.seconds)}
+                >
+                  +{step.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <div className="card-actions">
           {done ? (
             <button type="button" className="btn btn-quiet" onClick={onReopen}>

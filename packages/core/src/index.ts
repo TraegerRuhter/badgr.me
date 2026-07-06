@@ -6,6 +6,8 @@ export * from "./snooze";
 export * from "./notifications";
 export * from "./snoozeCopy";
 export * from "./sync";
+export * from "./adjust";
+export * from "./composer";
 export * from "./concurrency";
 export * from "./sections";
 export * from "./settings";
