@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Alarmed",
+    "name": "badgr.me",
     "slug": "alarmed-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "plugins": ["expo-notifications"],
     "ios": {
       "supportsTablet": true

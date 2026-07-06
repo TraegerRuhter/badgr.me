@@ -1,6 +1,6 @@
 # @alarmed/mobile
 
-The Expo (React Native) app — the part of Alarmed that actually pesters you.
+The Expo (React Native) app — the part of badgr.me that actually pesters you.
 This is where the nag mechanic lives, because iOS only lets a real app fire
 reliable local notifications.
 

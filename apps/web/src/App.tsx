@@ -297,7 +297,7 @@ export default function App() {
           <Icon name="bell" size={24} strokeWidth={2.2} />
         </div>
         <h1 className="wordmark">
-          Alarm<em>ed</em>
+          badgr<em>.me</em>
         </h1>
         <button
           type="button"

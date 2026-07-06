@@ -1,6 +1,8 @@
-# Alarmed
+# badgr.me
 
-A reminder app that keeps nagging until you actually deal with it. Native
+A reminder app that keeps badgering you until you actually deal with it.
+(Internal package scope remains `@alarmed/*` — the app's original working
+name — since renaming packages churns every import for zero user value.) Native
 iPhone app (sideloaded, no Mac/Apple Developer account required) plus a
 synced browser companion. See the full spec in the original task description
 for the architecture and phased roadmap.
@@ -60,8 +62,9 @@ supabase/ schema + RLS migrations (see supabase/README.md to apply)
 
 ## Design
 
-Both clients share one visual identity — "midnight ember": deep ink
-surfaces, warm cream text, a single hot ember accent — built from the
+Both clients share one visual identity — a badger's coat: charcoal-fur
+surfaces, the cream head-stripe for text, silvered grey for secondary,
+and one honey-amber accent (honey badger energy) — built from the
 tokens and the hand-drawn 24×24 stroke icon set in `@alarmed/ui`
 (rendered as inline SVG on web, react-native-svg on mobile). Task rows
 support swipe gestures on both platforms (right completes, left snoozes,

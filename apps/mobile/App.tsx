@@ -335,7 +335,7 @@ export default function App() {
           <Icon name="bell" size={24} color={colors.onAccent} strokeWidth={2.2} />
         </View>
         <Text style={styles.wordmark}>
-          Alarm<Text style={styles.wordmarkEmber}>ed</Text>
+          badgr<Text style={styles.wordmarkAccent}>.me</Text>
         </Text>
         <Pressable
           style={styles.iconBtn}
@@ -596,9 +596,9 @@ function ActionButton({ icon, label, tone, onPress }: ActionButtonProps) {
         : colors.textSecondary;
   const borderColor =
     tone === "accent"
-      ? "rgba(255, 107, 74, 0.45)"
+      ? "rgba(240, 163, 47, 0.45)"
       : tone === "danger"
-        ? "rgba(255, 93, 143, 0.4)"
+        ? "rgba(228, 87, 79, 0.4)"
         : colors.border;
   return (
     <Pressable
@@ -859,7 +859,7 @@ const styles = StyleSheet.create({
     flex: 1,
     color: colors.textPrimary,
   },
-  wordmarkEmber: {
+  wordmarkAccent: {
     color: colors.accent,
   },
   iconBtn: {

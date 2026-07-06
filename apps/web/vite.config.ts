@@ -13,11 +13,11 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       manifest: {
-        name: "Alarmed",
-        short_name: "Alarmed",
-        description: "Review and manage reminders that nag until they're dealt with.",
-        theme_color: "#FF6B4A",
-        background_color: "#131020",
+        name: "badgr.me",
+        short_name: "badgr.me",
+        description: "Reminders that badger you until they're dealt with.",
+        theme_color: "#F0A32F",
+        background_color: "#17181A",
         display: "standalone",
         icons: [
           {

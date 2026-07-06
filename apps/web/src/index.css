@@ -1,15 +1,15 @@
 :root {
-  --bg: #131020;
-  --surface: #1d1930;
-  --surface-raised: #282242;
-  --text: #f5f1e8;
-  --text-dim: #9c94b8;
-  --ember: #ff6b4a;
-  --ember-soft: #38222e;
-  --on-ember: #20100a;
-  --danger: #ff5d8f;
-  --danger-soft: #341c2e;
-  --border: #332c4e;
+  --bg: #17181a;
+  --surface: #212227;
+  --surface-raised: #2b2d33;
+  --text: #f4f2ea;
+  --text-dim: #9ba0a8;
+  --accent: #f0a32f;
+  --accent-soft: #342811;
+  --on-accent: #201603;
+  --danger: #e4574f;
+  --danger-soft: #351b1b;
+  --border: #34373e;
   --sans: "Avenir Next", "Segoe UI Variable", "Segoe UI", system-ui, Roboto,
     sans-serif;
 
@@ -19,7 +19,7 @@
   background-color: var(--bg);
   background-image: radial-gradient(
     1100px 480px at 50% -120px,
-    #251b38 0%,
+    #232529 0%,
     var(--bg) 60%
   );
   background-repeat: no-repeat;
@@ -31,8 +31,8 @@ body {
 }
 
 ::selection {
-  background: var(--ember);
-  color: var(--on-ember);
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 button {
@@ -40,7 +40,7 @@ button {
 }
 
 :focus-visible {
-  outline: 2px solid var(--ember);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 4px;
 }

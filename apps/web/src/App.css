@@ -20,7 +20,7 @@
   height: 24px;
   border-radius: 50%;
   border: 3px solid rgba(255, 255, 255, 0.12);
-  border-top-color: var(--ember);
+  border-top-color: var(--accent);
   animation: spin 0.8s linear infinite;
 }
 
@@ -45,10 +45,10 @@
   border-radius: 14px;
   display: grid;
   place-items: center;
-  color: var(--on-ember);
-  background: linear-gradient(135deg, #ff8a3d 0%, var(--ember) 55%, #f04f68 100%);
+  color: var(--on-accent);
+  background: linear-gradient(135deg, #f7c14b 0%, var(--accent) 55%, #d97e1f 100%);
   box-shadow:
-    0 4px 18px rgba(255, 107, 74, 0.35),
+    0 4px 18px rgba(240, 163, 47, 0.35),
     inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
@@ -63,7 +63,7 @@
 
 .wordmark em {
   font-style: normal;
-  color: var(--ember);
+  color: var(--accent);
 }
 
 .subline {
@@ -80,8 +80,8 @@
   height: 7px;
   margin-right: 6px;
   border-radius: 50%;
-  background: var(--ember);
-  box-shadow: 0 0 8px rgba(255, 107, 74, 0.8);
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(240, 163, 47, 0.8);
   animation: pulse 2.4s ease-in-out infinite;
 }
 
@@ -159,8 +159,8 @@
 
 .field:focus {
   outline: none;
-  border-color: var(--ember);
-  box-shadow: 0 0 0 3px rgba(255, 107, 74, 0.22);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(240, 163, 47, 0.22);
 }
 
 .chip-row {
@@ -169,7 +169,7 @@
   margin-top: 10px;
 }
 
-/* Preset chips: icon capsule + stacked label, ember on press. */
+/* Preset chips: icon capsule + stacked label, honey on press. */
 .chip {
   flex: 1;
   display: flex;
@@ -189,16 +189,16 @@
 }
 
 .chip:hover {
-  border-color: var(--ember);
+  border-color: var(--accent);
 }
 
 .chip:active {
   transform: scale(0.96);
-  background: var(--ember-soft);
+  background: var(--accent-soft);
 }
 
 .chip .chip-icon {
-  color: var(--ember);
+  color: var(--accent);
 }
 
 .chip .chip-label {
@@ -271,10 +271,10 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Overdue count burns ember so it can't be ignored. */
+/* Overdue count burns honey-amber so it can't be ignored. */
 .drawer-section.past .section-count {
-  background: var(--ember-soft);
-  color: var(--ember);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .section-action {
@@ -282,7 +282,7 @@
   padding: 5px 10px;
   border: none;
   background: transparent;
-  color: var(--ember);
+  color: var(--accent);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.2px;
@@ -292,7 +292,7 @@
 }
 
 .section-action:hover {
-  background: var(--ember-soft);
+  background: var(--accent-soft);
 }
 
 /* ---------- task cards + swipe ---------- */
@@ -328,8 +328,8 @@
 
 .swipe-hint.right {
   justify-content: flex-start;
-  background: var(--ember-soft);
-  color: var(--ember);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .swipe-hint.left {
@@ -361,7 +361,7 @@
   transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* Ember rail down the card's left edge; dims once done. */
+/* Honey rail down the card's left edge; dims once done. */
 .task-card::before {
   content: "";
   position: absolute;
@@ -370,7 +370,7 @@
   bottom: 14px;
   width: 3px;
   border-radius: 2px;
-  background: var(--ember);
+  background: var(--accent);
 }
 
 .task-card.done::before {
@@ -398,7 +398,7 @@
 .task-card.done .task-title {
   color: var(--text-dim);
   text-decoration: line-through;
-  text-decoration-color: var(--ember);
+  text-decoration-color: var(--accent);
   text-decoration-thickness: 2px;
 }
 
@@ -418,8 +418,8 @@
   gap: 4px;
   padding: 1px 8px;
   border-radius: 999px;
-  background: var(--ember-soft);
-  color: var(--ember);
+  background: var(--accent-soft);
+  color: var(--accent);
   font-size: 11.5px;
   font-weight: 700;
 }
@@ -462,13 +462,13 @@
 }
 
 .btn-accent {
-  color: var(--ember);
-  border-color: rgba(255, 107, 74, 0.45);
+  color: var(--accent);
+  border-color: rgba(240, 163, 47, 0.45);
 }
 
 .btn-accent:hover {
-  background: var(--ember-soft);
-  border-color: var(--ember);
+  background: var(--accent-soft);
+  border-color: var(--accent);
 }
 
 .btn-quiet:hover {
@@ -478,7 +478,7 @@
 
 .btn-danger {
   color: var(--danger);
-  border-color: rgba(255, 93, 143, 0.4);
+  border-color: rgba(228, 87, 79, 0.4);
   margin-left: auto;
 }
 
@@ -612,8 +612,8 @@
 }
 
 .stepper-btn:hover:not(:disabled) {
-  background: var(--ember-soft);
-  color: var(--ember);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .stepper-btn:disabled {
@@ -627,7 +627,7 @@
   font-size: 13.5px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--ember);
+  color: var(--accent);
 }
 
 .stepper-unit {
@@ -667,8 +667,8 @@
 }
 
 .segment.active {
-  background: var(--ember);
-  color: var(--on-ember);
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 /* ---------- reset ---------- */
@@ -723,8 +723,8 @@
 }
 
 .switch[aria-checked="true"] {
-  background: var(--ember);
-  border-color: var(--ember);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .switch[aria-checked="true"]::after {
