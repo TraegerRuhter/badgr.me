@@ -347,6 +347,14 @@
   background: var(--accent-soft);
 }
 
+.section-action.danger {
+  color: var(--danger);
+}
+
+.section-action.danger:hover {
+  background: var(--danger-soft);
+}
+
 /* ---------- task cards + swipe ---------- */
 
 .task-list {
@@ -840,6 +848,56 @@
 .segment.active {
   background: var(--accent);
   color: var(--on-accent);
+}
+
+/* ---------- system health + troubleshooting ---------- */
+
+.health-pill {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.health-pill.ok {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.ts-item {
+  border-bottom: 1px solid var(--border);
+}
+
+.ts-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ts-head:hover {
+  color: var(--accent);
+}
+
+.ts-body {
+  margin: 0 0 12px 22px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  animation: reveal 0.16s ease-out;
 }
 
 /* ---------- reset ---------- */
