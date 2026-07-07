@@ -33,9 +33,28 @@ export function isNagNotificationId(identifier: string): boolean {
   return parseNotificationId(identifier) !== null;
 }
 
-/** A task should be nagging only while it's open and not deleted (spec §3.1). */
+/**
+ * A task should be nagging only while it's open, not deleted, and not
+ * paused (spec §3.1). `dismissedAt` is the PowerCircle: set = alerts off
+ * without completing or deleting the task.
+ */
 export function isNaggable(task: Task): boolean {
-  return task.completedAt == null && task.deletedAt == null;
+  return (
+    task.completedAt == null &&
+    task.deletedAt == null &&
+    task.dismissedAt == null
+  );
+}
+
+/** The PowerCircle's three states: armed, paused (alerts off), or snoozed. */
+export type PowerState = "armed" | "paused" | "snoozed";
+
+export function powerStateFor(task: Task, now: Date = new Date()): PowerState {
+  if (task.dismissedAt != null) return "paused";
+  if (task.snoozeCount > 0 && Date.parse(task.fireAt) > now.getTime()) {
+    return "snoozed";
+  }
+  return "armed";
 }
 
 export interface PlannedNotification {

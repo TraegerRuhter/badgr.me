@@ -352,6 +352,29 @@ export async function updateTask(
 }
 
 /**
+ * The PowerCircle: pause (alerts off, task stays put) or resume. Paused
+ * tasks are skipped by the planner entirely — completing/deleting is not
+ * required to make a task shut up for a while.
+ */
+export async function setTaskPaused(
+  id: string,
+  paused: boolean
+): Promise<Task | null> {
+  const task = await getTask(id);
+  if (!task || task.completedAt != null || task.deletedAt != null) return null;
+
+  const now = new Date().toISOString();
+  const dismissedAt = paused ? now : null;
+  const db = await getDb();
+  await db.runAsync(
+    "UPDATE tasks SET dismissed_at = ?, updated_at = ? WHERE id = ?",
+    [dismissedAt, now, id]
+  );
+
+  return { ...task, dismissedAt, updatedAt: now };
+}
+
+/**
  * Single-tap due-date shift from the expanded task panel (±5m/±30m/±1h/±1d).
  * Unlike snooze this doesn't touch snoozeCount — nudging a date isn't
  * procrastination, so it shouldn't sharpen the copy ladder.

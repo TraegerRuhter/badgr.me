@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import { SAFE_GLOBAL_NOTIFICATION_BUDGET } from "./nag";
 import {
   buildNotificationId,
+  isNaggable,
   isNagNotificationId,
   parseNotificationId,
   planNagNotifications,
+  powerStateFor,
 } from "./notifications";
 import type { Task } from "./types";
 
@@ -141,5 +143,49 @@ describe("planNagNotifications", () => {
     expect(fresh).toHaveLength(6);
     expect(snoozedFive).toHaveLength(1); // 6 cap − 5 snoozes already charged
     expect(snoozedOut).toHaveLength(0); // cap fully consumed → the nag stops
+  });
+});
+
+describe("power circle", () => {
+  const base = {
+    id: "t1",
+    title: "t",
+    notes: null,
+    createdAt: "2026-07-08T12:00:00.000Z",
+    updatedAt: "2026-07-08T12:00:00.000Z",
+    fireAt: "2026-07-08T15:00:00.000Z",
+    nagIntervalSeconds: 60,
+    nagMaxCount: 5,
+    nagUntil: null,
+    escalationMode: "none",
+    completedAt: null,
+    dismissedAt: null,
+    repeatRule: null,
+    priority: 0,
+    deviceOrigin: "web",
+    deletedAt: null,
+    snoozeCount: 0,
+  } as const;
+  const NOW = new Date("2026-07-08T13:00:00.000Z");
+
+  it("a paused task is not naggable and plans nothing", () => {
+    const paused = { ...base, dismissedAt: "2026-07-08T12:30:00.000Z" };
+    expect(isNaggable(paused)).toBe(false);
+    expect(planNagNotifications([paused], { now: NOW })).toHaveLength(0);
+  });
+
+  it("maps armed / paused / snoozed states", () => {
+    expect(powerStateFor(base, NOW)).toBe("armed");
+    expect(
+      powerStateFor({ ...base, dismissedAt: "2026-07-08T12:30:00.000Z" }, NOW)
+    ).toBe("paused");
+    expect(powerStateFor({ ...base, snoozeCount: 2 }, NOW)).toBe("snoozed");
+    // A snoozed-in-the-past task is just armed again (it's firing).
+    expect(
+      powerStateFor(
+        { ...base, snoozeCount: 2, fireAt: "2026-07-08T12:00:00.000Z" },
+        NOW
+      )
+    ).toBe("armed");
   });
 });
