@@ -500,6 +500,21 @@ export default function App() {
                     Mark all done
                   </button>
                 ) : null}
+                {section.bucket === "done" ? (
+                  <button
+                    type="button"
+                    className="section-action danger"
+                    onClick={() =>
+                      runMutation(async () => {
+                        for (const task of section.tasks) {
+                          await deleteTask(task.id);
+                        }
+                      })
+                    }
+                  >
+                    Trim list
+                  </button>
+                ) : null}
               </div>
               {isCollapsed ? null : (
                 <ul className="task-list">
@@ -1197,6 +1212,41 @@ function SettingsDrawer({ settings, onChange, onClose }: SettingsDrawerProps) {
           />
         </div>
 
+        <div className="setting-group-label">
+          <Icon name="bell" size={15} />
+          System health
+        </div>
+
+        {systemHealth(settings).map((check) => (
+          <div className="setting-row" key={check.name}>
+            <div>
+              <p className="setting-name">{check.name}</p>
+              <p className="setting-desc">{check.detail}</p>
+            </div>
+            <span className={`health-pill${check.ok ? " ok" : ""}`}>
+              {check.ok ? "OK" : "Attention"}
+            </span>
+          </div>
+        ))}
+
+        <div className="setting-group-label">
+          <Icon name="bolt" size={15} />
+          Tips &amp; tricks
+        </div>
+
+        {TIPS.map((topic) => (
+          <TroubleshootItem key={topic.q} q={topic.q} a={topic.a} />
+        ))}
+
+        <div className="setting-group-label">
+          <Icon name="search" size={15} />
+          Troubleshooting
+        </div>
+
+        {TROUBLESHOOTING.map((topic) => (
+          <TroubleshootItem key={topic.q} q={topic.q} a={topic.a} />
+        ))}
+
         <button
           type="button"
           className="reset-btn"
@@ -1206,5 +1256,111 @@ function SettingsDrawer({ settings, onChange, onClose }: SettingsDrawerProps) {
         </button>
       </aside>
     </>
+  );
+}
+
+interface HealthCheck {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+/**
+ * Live status of the system-level things a nag depends on — the reference
+ * app's "system settings that impact the app" list, for this platform.
+ */
+function systemHealth(settings: AppSettings): HealthCheck[] {
+  const permission =
+    "Notification" in window ? Notification.permission : "unsupported";
+  const swActive =
+    "serviceWorker" in navigator && navigator.serviceWorker.controller != null;
+
+  return [
+    {
+      name: "Notification permission",
+      ok: permission === "granted",
+      detail:
+        permission === "granted"
+          ? "Granted — nags can fire."
+          : permission === "denied"
+            ? "Blocked. Enable notifications for this site in the browser's site settings, then reload."
+            : permission === "default"
+              ? "Not decided yet — the browser will ask when a nag arms."
+              : "This browser can't show notifications at all.",
+    },
+    {
+      name: "Offline support",
+      ok: swActive,
+      detail: swActive
+        ? "Service worker active — the app loads offline and can be installed."
+        : "Not active yet — reload the page once after first visit.",
+    },
+    {
+      name: "Sync",
+      ok: syncEnabled && !settings.sync.paused,
+      detail: !syncEnabled
+        ? "No Supabase project configured — the app runs local-only."
+        : settings.sync.paused
+          ? "Paused — flip the switch above to resume."
+          : "Reconciling in the background after every change.",
+    },
+  ];
+}
+
+const TIPS: readonly { q: string; a: string }[] = [
+  {
+    q: "Swipe works both ways",
+    a: "Swipe a task right to complete it, left to snooze it, and swipe a finished task right to reopen it. Directions can be swapped — or swiping disabled — under Gestures above.",
+  },
+  {
+    q: "Notes replace the sass",
+    a: "If a task has notes, they become the notification body verbatim. The escalating copy ladder only ever writes the generic line — your own words are never overwritten.",
+  },
+  {
+    q: "Snoozing sharpens the tone; adjusting doesn't",
+    a: "Every snooze bumps the escalation ladder, so the copy gets more pointed. Nudging the due date from the ±panel deliberately doesn't count against you.",
+  },
+  {
+    q: "The armed badge is live math",
+    a: "The count on each card comes from the same planner that actually schedules notifications, honoring your per-task and total caps — what you see is exactly what's armed.",
+  },
+];
+
+const TROUBLESHOOTING: readonly { q: string; a: string }[] = [
+  {
+    q: "Nags only fire while a tab is open",
+    a: "Browsers can't pre-schedule notifications the way a phone OS can, so this app arms timers that live inside the page. Keep a tab (or the installed app window) open — minimized is fine, closed is not. Closing this gap for real needs a Web Push backend, which is on the roadmap.",
+  },
+  {
+    q: "A nag due while my laptop was asleep never fired",
+    a: "Timers don't tick through system sleep. The app re-derives its whole schedule the moment the tab becomes visible again, so the missed nag fires on your return — but it can't wake a sleeping machine.",
+  },
+  {
+    q: "Notifications are blocked",
+    a: "If the permission row above says Blocked, the browser is refusing on your behalf. Click the icon left of the address bar, find Notifications, set it to Allow, and reload. The row flips to OK when it's fixed.",
+  },
+  {
+    q: "Nothing is syncing between devices",
+    a: "Sync needs a configured Supabase project (see the repo's supabase/README) and the Pause switch off on every device. When two devices disagree, the most recent edit wins.",
+  },
+];
+
+function TroubleshootItem({ q, a }: { q: string; a: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="ts-item">
+      <button
+        type="button"
+        className="ts-head"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className={`section-chevron${open ? "" : " collapsed"}`}>
+          <Icon name="chevron" size={14} strokeWidth={2.4} />
+        </span>
+        {q}
+      </button>
+      {open ? <p className="ts-body">{a}</p> : null}
+    </div>
   );
 }

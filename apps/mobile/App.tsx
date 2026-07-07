@@ -571,6 +571,22 @@ export default function App() {
                   <Text style={styles.sectionActionText}>Mark all done</Text>
                 </Pressable>
               ) : null}
+              {section.bucket === "done" ? (
+                <Pressable
+                  style={styles.sectionAction}
+                  onPress={() =>
+                    runMutation(async () => {
+                      for (const task of section.tasks) {
+                        await deleteTask(task.id);
+                      }
+                    })
+                  }
+                >
+                  <Text style={[styles.sectionActionText, styles.sectionActionDanger]}>
+                    Trim list
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
           );
         }}
@@ -596,6 +612,7 @@ export default function App() {
       <SettingsSheet
         open={settingsOpen}
         settings={settings}
+        permissionGranted={permissionGranted}
         onChange={updateSettings}
         onClose={() => setSettingsOpen(false)}
       />
@@ -1003,8 +1020,69 @@ function ActionButton({ icon, label, tone, onPress }: ActionButtonProps) {
 interface SettingsSheetProps {
   open: boolean;
   settings: AppSettings;
+  permissionGranted: boolean | null;
   onChange: (next: AppSettings) => void;
   onClose: () => void;
+}
+
+const TIPS: readonly { q: string; a: string }[] = [
+  {
+    q: "Swipe works both ways",
+    a: "Swipe a task right to complete it, left to snooze it, and swipe a finished task right to reopen it. Directions can be swapped — or swiping disabled — under Gestures above.",
+  },
+  {
+    q: "Notes replace the sass",
+    a: "If a task has notes, they become the notification body verbatim. The escalating copy ladder only ever writes the generic line — your own words are never overwritten.",
+  },
+  {
+    q: "Snoozing sharpens the tone; adjusting doesn't",
+    a: "Every snooze bumps the escalation ladder, so the copy gets more pointed. Nudging the due date from the ±panel deliberately doesn't count against you.",
+  },
+  {
+    q: "The armed badge is live math",
+    a: "The count on each card comes from the same planner that actually schedules notifications, honoring your per-task and total caps — what you see is exactly what's armed.",
+  },
+];
+
+const TROUBLESHOOTING: readonly { q: string; a: string }[] = [
+  {
+    q: "Force-quitting is fine here",
+    a: "Every nag burst is handed to the OS the moment it's scheduled, so notifications keep firing even if you swipe the app away. Reopening the app just recomputes and re-arms the schedule.",
+  },
+  {
+    q: "Armed counts stop around 60",
+    a: "iOS caps pending local notifications at 64 per app. The app reserves a little headroom and spreads the rest across your tasks — soonest and highest-priority first. The cap is tunable under Nagging above.",
+  },
+  {
+    q: "Notifications aren't appearing",
+    a: "Check the permission row above. If it needs attention, open the system Settings app > badgr.me > Notifications and allow alerts and sounds. On Android, the 'Nags' channel must also stay high-importance.",
+  },
+  {
+    q: "Nothing is syncing between devices",
+    a: "Sync needs a configured Supabase project (see the repo's supabase/README) and the Pause switch off on every device. When two devices disagree, the most recent edit wins.",
+  },
+];
+
+function TroubleshootItem({ q, a }: { q: string; a: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={styles.tsItem}>
+      <Pressable
+        style={styles.tsHead}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen((v) => !v)}
+      >
+        <View
+          style={[styles.sectionChevron, !open && styles.sectionChevronCollapsed]}
+        >
+          <Icon name="chevron" size={14} strokeWidth={2.4} color={colors.textSecondary} />
+        </View>
+        <Text style={styles.tsHeadText}>{q}</Text>
+      </Pressable>
+      {open ? <Text style={styles.tsBody}>{a}</Text> : null}
+    </View>
+  );
 }
 
 const TONE_LABELS: Record<NagTone, string> = {
@@ -1013,7 +1091,13 @@ const TONE_LABELS: Record<NagTone, string> = {
   savage: "Savage",
 };
 
-function SettingsSheet({ open, settings, onChange, onClose }: SettingsSheetProps) {
+function SettingsSheet({
+  open,
+  settings,
+  permissionGranted,
+  onChange,
+  onClose,
+}: SettingsSheetProps) {
   const g = settings.gestures;
   const n = settings.nag;
   const c = settings.copy;
@@ -1196,6 +1280,82 @@ function SettingsSheet({ open, settings, onChange, onClose }: SettingsSheetProps
               onChange={(paused) => onChange({ ...settings, sync: { paused } })}
             />
           </View>
+
+          <View style={styles.groupLabelRow}>
+            <Icon name="bell" size={15} color={colors.textSecondary} />
+            <Text style={styles.groupLabel}>SYSTEM HEALTH</Text>
+          </View>
+
+          <View style={styles.settingRow}>
+            <View style={styles.settingText}>
+              <Text style={styles.settingName}>Notification permission</Text>
+              <Text style={styles.settingDesc}>
+                {permissionGranted
+                  ? "Granted — nags can fire, even force-closed."
+                  : permissionGranted === false
+                    ? "Blocked. Allow alerts in the system Settings app > badgr.me > Notifications."
+                    : "Not decided yet — the system will ask on launch."}
+              </Text>
+            </View>
+            <View
+              style={[styles.healthPill, permissionGranted && styles.healthPillOk]}
+            >
+              <Text
+                style={[
+                  styles.healthPillText,
+                  permissionGranted && styles.healthPillTextOk,
+                ]}
+              >
+                {permissionGranted ? "OK" : "ATTENTION"}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.settingRow}>
+            <View style={styles.settingText}>
+              <Text style={styles.settingName}>Sync</Text>
+              <Text style={styles.settingDesc}>
+                {!syncEnabled
+                  ? "No Supabase project configured — the app runs local-only."
+                  : settings.sync.paused
+                    ? "Paused — flip the switch above to resume."
+                    : "Reconciling in the background after every change."}
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.healthPill,
+                syncEnabled && !settings.sync.paused && styles.healthPillOk,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.healthPillText,
+                  syncEnabled && !settings.sync.paused && styles.healthPillTextOk,
+                ]}
+              >
+                {syncEnabled && !settings.sync.paused ? "OK" : "ATTENTION"}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.groupLabelRow}>
+            <Icon name="bolt" size={15} color={colors.textSecondary} />
+            <Text style={styles.groupLabel}>TIPS & TRICKS</Text>
+          </View>
+
+          {TIPS.map((topic) => (
+            <TroubleshootItem key={topic.q} q={topic.q} a={topic.a} />
+          ))}
+
+          <View style={styles.groupLabelRow}>
+            <Icon name="search" size={15} color={colors.textSecondary} />
+            <Text style={styles.groupLabel}>TROUBLESHOOTING</Text>
+          </View>
+
+          {TROUBLESHOOTING.map((topic) => (
+            <TroubleshootItem key={topic.q} q={topic.q} a={topic.a} />
+          ))}
 
           <Pressable
             style={({ pressed }) => [styles.resetBtn, pressed && styles.resetBtnPressed]}
@@ -1380,6 +1540,47 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: colors.textSecondary,
   },
+  healthPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: radii.pill,
+    backgroundColor: colors.dangerSoft,
+  },
+  healthPillOk: {
+    backgroundColor: colors.accentSoft,
+  },
+  healthPillText: {
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    color: colors.danger,
+  },
+  healthPillTextOk: {
+    color: colors.accent,
+  },
+  tsItem: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  tsHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 12,
+  },
+  tsHeadText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "600",
+    color: colors.textPrimary,
+  },
+  tsBody: {
+    marginLeft: 22,
+    marginBottom: 12,
+    fontSize: 13,
+    lineHeight: 20,
+    color: colors.textSecondary,
+  },
   adjustPanel: {
     marginTop: 12,
     paddingTop: 12,
@@ -1507,6 +1708,9 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.2,
     color: colors.accent,
+  },
+  sectionActionDanger: {
+    color: colors.danger,
   },
   card: {
     backgroundColor: colors.surface,
