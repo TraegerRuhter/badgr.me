@@ -7,6 +7,7 @@ import {
   overdueAgeLabel,
   planNagNotifications,
   planOptionsFrom,
+  powerStateFor,
   quickFireAt,
   refreshNextOccurrenceCopy,
   SETTING_LIMITS,
@@ -33,6 +34,7 @@ import {
   initDatabase,
   listTasks,
   reopenTask,
+  setTaskPaused,
   snoozeTask,
   updateTask,
   STORAGE_KEY,
@@ -115,7 +117,9 @@ export default function App() {
   const [armedCount, setArmedCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<AppSettings>(loadSettings);
+  const [quickOpen, setQuickOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<TaskBucket[]>(loadCollapsed);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -365,14 +369,31 @@ export default function App() {
         >
           <Icon name="search" size={19} />
         </button>
-        <button
-          type="button"
-          className="icon-btn"
-          aria-label="Settings"
-          onClick={() => setSettingsOpen(true)}
-        >
-          <Icon name="sliders" size={20} />
-        </button>
+        <div className="quick-anchor">
+          <button
+            type="button"
+            className={`icon-btn${quickOpen ? " active" : ""}`}
+            aria-label="Settings"
+            onClick={() => setQuickOpen((v) => !v)}
+          >
+            <Icon name="sliders" size={20} />
+          </button>
+          {quickOpen ? (
+            <QuickPanel
+              settings={settings}
+              onChange={updateSettings}
+              onOpenSettings={() => {
+                setQuickOpen(false);
+                setSettingsOpen(true);
+              }}
+              onOpenHelp={() => {
+                setQuickOpen(false);
+                setHelpOpen(true);
+              }}
+              onClose={() => setQuickOpen(false)}
+            />
+          ) : null}
+        </div>
       </header>
       <p className="subline">
         {armedCount > 0 ? <span className="armed-dot" aria-hidden="true" /> : null}
@@ -530,6 +551,11 @@ export default function App() {
                       }
                       onAdjust={(delta) => handleAdjust(task.id, delta)}
                       onEdit={() => setEditingId(task.id)}
+                      onTogglePause={() =>
+                        runMutation(() =>
+                          setTaskPaused(task.id, task.dismissedAt == null)
+                        )
+                      }
                       onComplete={() => runMutation(() => completeTask(task.id))}
                       onReopen={() => runMutation(() => reopenTask(task.id))}
                       onDelete={() => runMutation(() => deleteTask(task.id))}
@@ -549,6 +575,10 @@ export default function App() {
           onChange={updateSettings}
           onClose={() => setSettingsOpen(false)}
         />
+      ) : null}
+
+      {helpOpen ? (
+        <HelpDrawer settings={settings} onClose={() => setHelpOpen(false)} />
       ) : null}
 
       {editingTask ? (
@@ -573,6 +603,7 @@ interface TaskCardProps {
   onToggleExpand: () => void;
   onAdjust: (deltaSeconds: number) => void;
   onEdit: () => void;
+  onTogglePause: () => void;
   onComplete: () => void;
   onReopen: () => void;
   onDelete: () => void;
@@ -587,13 +618,16 @@ function TaskCard({
   onToggleExpand,
   onAdjust,
   onEdit,
+  onTogglePause,
   onComplete,
   onReopen,
   onDelete,
   onSnooze,
 }: TaskCardProps) {
   const done = task.completedAt != null;
-  const ageLabel = done ? "" : overdueAgeLabel(task.fireAt);
+  const power = powerStateFor(task);
+  const paused = power === "paused";
+  const ageLabel = done || paused ? "" : overdueAgeLabel(task.fireAt);
 
   // A done task can only be swiped back open; an open task maps each side
   // through the (possibly swapped) gesture settings.
@@ -648,10 +682,31 @@ function TaskCard({
         }}
         {...handlers}
       >
-        <p className="task-title">{task.title}</p>
+        <div className="title-row">
+          {!done ? (
+            <button
+              type="button"
+              className={`power-circle ${power}`}
+              aria-label={paused ? "Resume alerts" : "Pause alerts"}
+              title={
+                power === "paused"
+                  ? "Alerts off — tap to resume"
+                  : power === "snoozed"
+                    ? "Snoozed — tap to pause alerts"
+                    : "Alerts on — tap to pause"
+              }
+              onClick={onTogglePause}
+            >
+              <Icon name="power" size={13} strokeWidth={2.4} />
+            </button>
+          ) : null}
+          <p className="task-title">{task.title}</p>
+        </div>
         <p className="task-meta">
           {done ? (
             <span>Done {formatDateTime(task.completedAt as string)}</span>
+          ) : paused ? (
+            <span>Paused — no alerts until resumed</span>
           ) : (
             <>
               <span className={ageLabel ? "meta-overdue" : undefined}>
@@ -1212,6 +1267,121 @@ function SettingsDrawer({ settings, onChange, onClose }: SettingsDrawerProps) {
           />
         </div>
 
+        <button
+          type="button"
+          className="reset-btn"
+          onClick={() => onChange(DEFAULT_SETTINGS)}
+        >
+          Reset to defaults
+        </button>
+      </aside>
+    </>
+  );
+}
+
+interface QuickPanelProps {
+  settings: AppSettings;
+  onChange: (next: AppSettings) => void;
+  onOpenSettings: () => void;
+  onOpenHelp: () => void;
+  onClose: () => void;
+}
+
+/**
+ * The compact panel behind the sliders icon: the two most-touched switches
+ * and the tone control, plus doors into full Settings and Help.
+ */
+function QuickPanel({
+  settings,
+  onChange,
+  onOpenSettings,
+  onOpenHelp,
+  onClose,
+}: QuickPanelProps) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const g = settings.gestures;
+  return (
+    <>
+      <div className="quick-scrim" onClick={onClose} />
+      <div className="quick-panel" role="dialog" aria-label="Quick settings">
+        <div className="setting-row">
+          <p className="setting-name">Swipe gestures</p>
+          <Switch
+            checked={g.swipeEnabled}
+            label="Swipe gestures"
+            onChange={(swipeEnabled) =>
+              onChange({ ...settings, gestures: { ...g, swipeEnabled } })
+            }
+          />
+        </div>
+        <div className="setting-row">
+          <p className="setting-name">Pause sync</p>
+          <Switch
+            checked={settings.sync.paused}
+            label="Pause sync"
+            onChange={(paused) => onChange({ ...settings, sync: { paused } })}
+          />
+        </div>
+        <div className="quick-tone">
+          <ToneSegmented
+            value={settings.copy.tone}
+            onChange={(tone) =>
+              onChange({ ...settings, copy: { ...settings.copy, tone } })
+            }
+          />
+        </div>
+        <div className="quick-nav">
+          <button type="button" className="btn btn-quiet" onClick={onOpenSettings}>
+            <Icon name="sliders" size={15} />
+            All settings
+          </button>
+          <button type="button" className="btn btn-accent" onClick={onOpenHelp}>
+            <Icon name="help" size={15} />
+            Help
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+interface HelpDrawerProps {
+  settings: AppSettings;
+  onClose: () => void;
+}
+
+function HelpDrawer({ settings, onClose }: HelpDrawerProps) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <>
+      <div className="drawer-backdrop" onClick={onClose} />
+      <aside className="drawer" role="dialog" aria-label="Help">
+        <div className="drawer-head">
+          <h2 className="drawer-title">Help</h2>
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="Close help"
+            onClick={onClose}
+          >
+            <Icon name="close" size={18} />
+          </button>
+        </div>
+
         <div className="setting-group-label">
           <Icon name="bell" size={15} />
           System health
@@ -1246,14 +1416,6 @@ function SettingsDrawer({ settings, onChange, onClose }: SettingsDrawerProps) {
         {TROUBLESHOOTING.map((topic) => (
           <TroubleshootItem key={topic.q} q={topic.q} a={topic.a} />
         ))}
-
-        <button
-          type="button"
-          className="reset-btn"
-          onClick={() => onChange(DEFAULT_SETTINGS)}
-        >
-          Reset to defaults
-        </button>
       </aside>
     </>
   );

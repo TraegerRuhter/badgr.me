@@ -6,6 +6,7 @@ import {
   parseNotificationId,
   planNagNotifications,
   planOptionsFrom,
+  powerStateFor,
   quickFireAt,
   refreshNextOccurrenceCopy,
   swipeActionFor,
@@ -32,6 +33,7 @@ import {
   AppState,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   SectionList,
   StyleSheet,
@@ -51,6 +53,7 @@ import {
   initDatabase,
   listTasks,
   reopenTask,
+  setTaskPaused,
   snoozeTask,
   updateTask,
   type NewTaskInput,
@@ -131,7 +134,10 @@ export default function App() {
   const [armedCount, setArmedCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [quickOpen, setQuickOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [collapsed, setCollapsed] = useState<TaskBucket[]>(["done"]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -391,7 +397,7 @@ export default function App() {
         <Pressable
           style={styles.iconBtn}
           accessibilityLabel="Settings"
-          onPress={() => setSettingsOpen(true)}
+          onPress={() => setQuickOpen(true)}
         >
           <Icon name="sliders" size={20} color={colors.textSecondary} />
         </Pressable>
@@ -508,6 +514,21 @@ export default function App() {
         keyExtractor={(task) => task.id}
         contentContainerStyle={styles.list}
         stickySectionHeadersEnabled={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            tintColor={colors.accent}
+            onRefresh={() => {
+              // Manual pull deliberately ignores "Pause sync" — the user is
+              // asking for a refresh right now.
+              setRefreshing(true);
+              void runSync()
+                .then(() => syncFromDb())
+                .catch(() => {})
+                .finally(() => setRefreshing(false));
+            }}
+          />
+        }
         ListEmptyComponent={
           <Text style={styles.caption}>
             {query.trim()
@@ -601,6 +622,9 @@ export default function App() {
             }
             onAdjust={(delta) => handleAdjust(item.id, delta)}
             onEdit={() => setEditingId(item.id)}
+            onTogglePause={() =>
+              runMutation(() => setTaskPaused(item.id, item.dismissedAt == null))
+            }
             onComplete={() => runMutation(() => completeTask(item.id))}
             onReopen={() => runMutation(() => reopenTask(item.id))}
             onDelete={() => runMutation(() => deleteTask(item.id))}
@@ -609,12 +633,32 @@ export default function App() {
         )}
       />
 
+      <QuickSheet
+        open={quickOpen}
+        settings={settings}
+        onChange={updateSettings}
+        onOpenSettings={() => {
+          setQuickOpen(false);
+          setSettingsOpen(true);
+        }}
+        onOpenHelp={() => {
+          setQuickOpen(false);
+          setHelpOpen(true);
+        }}
+        onClose={() => setQuickOpen(false)}
+      />
       <SettingsSheet
         open={settingsOpen}
         settings={settings}
         permissionGranted={permissionGranted}
         onChange={updateSettings}
         onClose={() => setSettingsOpen(false)}
+      />
+      <HelpSheet
+        open={helpOpen}
+        settings={settings}
+        permissionGranted={permissionGranted}
+        onClose={() => setHelpOpen(false)}
       />
       {editingTask ? (
         <EditSheet
@@ -831,6 +875,7 @@ interface TaskCardProps {
   onToggleExpand: () => void;
   onAdjust: (deltaSeconds: number) => void;
   onEdit: () => void;
+  onTogglePause: () => void;
   onComplete: () => void;
   onReopen: () => void;
   onDelete: () => void;
@@ -845,13 +890,22 @@ function TaskCard({
   onToggleExpand,
   onAdjust,
   onEdit,
+  onTogglePause,
   onComplete,
   onReopen,
   onDelete,
   onSnooze,
 }: TaskCardProps) {
   const done = task.completedAt != null;
-  const ageLabel = done ? "" : overdueAgeLabel(task.fireAt);
+  const power = powerStateFor(task);
+  const paused = power === "paused";
+  const ageLabel = done || paused ? "" : overdueAgeLabel(task.fireAt);
+  const powerColor =
+    power === "paused"
+      ? colors.danger
+      : power === "snoozed"
+        ? colors.textSecondary
+        : colors.accent;
 
   // A done task can only be swiped back open; an open task maps each side
   // through the (possibly swapped) gesture settings.
@@ -888,12 +942,25 @@ function TaskCard({
         accessibilityHint="Expands quick due-date adjustments"
       >
         <View style={[styles.cardRail, done && styles.cardRailDone]} />
-        <Text style={[styles.title, done && styles.titleDone]}>{task.title}</Text>
+        <View style={styles.titleRow}>
+          {!done ? (
+            <Pressable
+              style={[styles.powerCircle, { borderColor: powerColor }, paused && styles.powerCirclePaused]}
+              accessibilityLabel={paused ? "Resume alerts" : "Pause alerts"}
+              onPress={onTogglePause}
+            >
+              <Icon name="power" size={13} strokeWidth={2.4} color={powerColor} />
+            </Pressable>
+          ) : null}
+          <Text style={[styles.title, done && styles.titleDone]}>{task.title}</Text>
+        </View>
         <View style={styles.metaRow}>
           {done ? (
             <Text style={styles.caption}>
               Done {formatDateTime(task.completedAt as string)}
             </Text>
+          ) : paused ? (
+            <Text style={styles.caption}>Paused — no alerts until resumed</Text>
           ) : (
             <>
               <Text style={[styles.caption, ageLabel ? styles.metaOverdue : null]}>
@@ -1023,6 +1090,194 @@ interface SettingsSheetProps {
   permissionGranted: boolean | null;
   onChange: (next: AppSettings) => void;
   onClose: () => void;
+}
+
+interface QuickSheetProps {
+  open: boolean;
+  settings: AppSettings;
+  onChange: (next: AppSettings) => void;
+  onOpenSettings: () => void;
+  onOpenHelp: () => void;
+  onClose: () => void;
+}
+
+/**
+ * The compact sheet behind the sliders icon: the two most-touched switches
+ * and the tone control, plus doors into full Settings and Help.
+ */
+function QuickSheet({
+  open,
+  settings,
+  onChange,
+  onOpenSettings,
+  onOpenHelp,
+  onClose,
+}: QuickSheetProps) {
+  const g = settings.gestures;
+  return (
+    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.sheetBackdrop} onPress={onClose} />
+      <View style={styles.sheet}>
+        <View style={styles.sheetHandle} />
+        <View style={styles.settingRow}>
+          <Text style={styles.settingName}>Swipe gestures</Text>
+          <Toggle
+            value={g.swipeEnabled}
+            label="Swipe gestures"
+            onChange={(swipeEnabled) =>
+              onChange({ ...settings, gestures: { ...g, swipeEnabled } })
+            }
+          />
+        </View>
+        <View style={styles.settingRow}>
+          <Text style={styles.settingName}>Pause sync</Text>
+          <Toggle
+            value={settings.sync.paused}
+            label="Pause sync"
+            disabled={!syncEnabled}
+            onChange={(paused) => onChange({ ...settings, sync: { paused } })}
+          />
+        </View>
+        <View style={styles.quickTone}>
+          <Segmented
+            options={NAG_TONES}
+            labels={TONE_LABELS}
+            value={settings.copy.tone}
+            label="Nag tone"
+            onChange={(tone) =>
+              onChange({ ...settings, copy: { ...settings.copy, tone } })
+            }
+          />
+        </View>
+        <View style={styles.quickNav}>
+          <Pressable
+            style={({ pressed }) => [styles.quickNavBtn, pressed && styles.btnPressed]}
+            onPress={onOpenSettings}
+          >
+            <Icon name="sliders" size={15} color={colors.textSecondary} />
+            <Text style={styles.quickNavText}>All settings</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [
+              styles.quickNavBtn,
+              styles.quickNavBtnAccent,
+              pressed && styles.btnPressed,
+            ]}
+            onPress={onOpenHelp}
+          >
+            <Icon name="help" size={15} color={colors.accent} />
+            <Text style={[styles.quickNavText, styles.quickNavTextAccent]}>Help</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+interface HelpSheetProps {
+  open: boolean;
+  settings: AppSettings;
+  permissionGranted: boolean | null;
+  onClose: () => void;
+}
+
+function HelpSheet({ open, settings, permissionGranted, onClose }: HelpSheetProps) {
+  return (
+    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.sheetBackdrop} onPress={onClose} />
+      <View style={styles.sheet}>
+        <View style={styles.sheetHandle} />
+        <View style={styles.sheetHead}>
+          <Text style={styles.sheetTitle}>Help</Text>
+          <Pressable
+            style={styles.iconBtn}
+            accessibilityLabel="Close help"
+            onPress={onClose}
+          >
+            <Icon name="close" size={18} color={colors.textSecondary} />
+          </Pressable>
+        </View>
+
+        <ScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
+          <View style={styles.groupLabelRow}>
+            <Icon name="bell" size={15} color={colors.textSecondary} />
+            <Text style={styles.groupLabel}>SYSTEM HEALTH</Text>
+          </View>
+
+          <View style={styles.settingRow}>
+            <View style={styles.settingText}>
+              <Text style={styles.settingName}>Notification permission</Text>
+              <Text style={styles.settingDesc}>
+                {permissionGranted
+                  ? "Granted — nags can fire, even force-closed."
+                  : permissionGranted === false
+                    ? "Blocked. Allow alerts in the system Settings app > badgr.me > Notifications."
+                    : "Not decided yet — the system will ask on launch."}
+              </Text>
+            </View>
+            <View
+              style={[styles.healthPill, permissionGranted && styles.healthPillOk]}
+            >
+              <Text
+                style={[
+                  styles.healthPillText,
+                  permissionGranted && styles.healthPillTextOk,
+                ]}
+              >
+                {permissionGranted ? "OK" : "ATTENTION"}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.settingRow}>
+            <View style={styles.settingText}>
+              <Text style={styles.settingName}>Sync</Text>
+              <Text style={styles.settingDesc}>
+                {!syncEnabled
+                  ? "No Supabase project configured — the app runs local-only."
+                  : settings.sync.paused
+                    ? "Paused — resume from quick settings."
+                    : "Reconciling in the background after every change."}
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.healthPill,
+                syncEnabled && !settings.sync.paused && styles.healthPillOk,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.healthPillText,
+                  syncEnabled && !settings.sync.paused && styles.healthPillTextOk,
+                ]}
+              >
+                {syncEnabled && !settings.sync.paused ? "OK" : "ATTENTION"}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.groupLabelRow}>
+            <Icon name="bolt" size={15} color={colors.textSecondary} />
+            <Text style={styles.groupLabel}>TIPS & TRICKS</Text>
+          </View>
+
+          {TIPS.map((topic) => (
+            <TroubleshootItem key={topic.q} q={topic.q} a={topic.a} />
+          ))}
+
+          <View style={styles.groupLabelRow}>
+            <Icon name="search" size={15} color={colors.textSecondary} />
+            <Text style={styles.groupLabel}>TROUBLESHOOTING</Text>
+          </View>
+
+          {TROUBLESHOOTING.map((topic) => (
+            <TroubleshootItem key={topic.q} q={topic.q} a={topic.a} />
+          ))}
+        </ScrollView>
+      </View>
+    </Modal>
+  );
 }
 
 const TIPS: readonly { q: string; a: string }[] = [
@@ -1280,82 +1535,6 @@ function SettingsSheet({
               onChange={(paused) => onChange({ ...settings, sync: { paused } })}
             />
           </View>
-
-          <View style={styles.groupLabelRow}>
-            <Icon name="bell" size={15} color={colors.textSecondary} />
-            <Text style={styles.groupLabel}>SYSTEM HEALTH</Text>
-          </View>
-
-          <View style={styles.settingRow}>
-            <View style={styles.settingText}>
-              <Text style={styles.settingName}>Notification permission</Text>
-              <Text style={styles.settingDesc}>
-                {permissionGranted
-                  ? "Granted — nags can fire, even force-closed."
-                  : permissionGranted === false
-                    ? "Blocked. Allow alerts in the system Settings app > badgr.me > Notifications."
-                    : "Not decided yet — the system will ask on launch."}
-              </Text>
-            </View>
-            <View
-              style={[styles.healthPill, permissionGranted && styles.healthPillOk]}
-            >
-              <Text
-                style={[
-                  styles.healthPillText,
-                  permissionGranted && styles.healthPillTextOk,
-                ]}
-              >
-                {permissionGranted ? "OK" : "ATTENTION"}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.settingRow}>
-            <View style={styles.settingText}>
-              <Text style={styles.settingName}>Sync</Text>
-              <Text style={styles.settingDesc}>
-                {!syncEnabled
-                  ? "No Supabase project configured — the app runs local-only."
-                  : settings.sync.paused
-                    ? "Paused — flip the switch above to resume."
-                    : "Reconciling in the background after every change."}
-              </Text>
-            </View>
-            <View
-              style={[
-                styles.healthPill,
-                syncEnabled && !settings.sync.paused && styles.healthPillOk,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.healthPillText,
-                  syncEnabled && !settings.sync.paused && styles.healthPillTextOk,
-                ]}
-              >
-                {syncEnabled && !settings.sync.paused ? "OK" : "ATTENTION"}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.groupLabelRow}>
-            <Icon name="bolt" size={15} color={colors.textSecondary} />
-            <Text style={styles.groupLabel}>TIPS & TRICKS</Text>
-          </View>
-
-          {TIPS.map((topic) => (
-            <TroubleshootItem key={topic.q} q={topic.q} a={topic.a} />
-          ))}
-
-          <View style={styles.groupLabelRow}>
-            <Icon name="search" size={15} color={colors.textSecondary} />
-            <Text style={styles.groupLabel}>TROUBLESHOOTING</Text>
-          </View>
-
-          {TROUBLESHOOTING.map((topic) => (
-            <TroubleshootItem key={topic.q} q={topic.q} a={topic.a} />
-          ))}
 
           <Pressable
             style={({ pressed }) => [styles.resetBtn, pressed && styles.resetBtnPressed]}
@@ -1711,6 +1890,55 @@ const styles = StyleSheet.create({
   },
   sectionActionDanger: {
     color: colors.danger,
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  powerCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  powerCirclePaused: {
+    backgroundColor: colors.dangerSoft,
+  },
+  quickTone: {
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  quickNav: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: 14,
+    marginBottom: 8,
+  },
+  quickNavBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  quickNavBtnAccent: {
+    borderColor: "rgba(240, 163, 47, 0.45)",
+  },
+  quickNavText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.textSecondary,
+  },
+  quickNavTextAccent: {
+    color: colors.accent,
   },
   card: {
     backgroundColor: colors.surface,

@@ -70,6 +70,10 @@ export const iconPaths = {
   chevron: "M6 9.5l6 6 6-6",
   /** Magnifier — search. */
   search: "M10.5 3.5a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM15.6 15.6l4.9 4.9",
+  /** Power symbol — the per-task alerts toggle. */
+  power: "M12 3.5v8M7 6.2a8 8 0 1 0 10 0",
+  /** Question mark in a circle — help. */
+  help: "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM9.8 9.5a2.3 2.3 0 0 1 4.5.7c0 1.4-2.1 1.8-2.1 3M12 16.5v.01",
   /** Pencil — edit. */
   pencil: "M4 20l.9-3.6L15.6 5.7a2 2 0 0 1 2.8 0l-.1-.1a2 2 0 0 1 0 2.8L7.6 19.1L4 20zM13.5 7.8l2.7 2.7",
   plus: "M12 5v14M5 12h14",

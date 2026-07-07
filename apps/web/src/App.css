@@ -850,6 +850,98 @@
   color: var(--on-accent);
 }
 
+/* ---------- quick settings popover ---------- */
+
+.quick-anchor {
+  position: relative;
+}
+
+.quick-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+}
+
+.quick-panel {
+  position: absolute;
+  top: 48px;
+  right: 0;
+  z-index: 16;
+  width: 264px;
+  padding: 6px 16px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  animation: reveal 0.15s ease-out;
+}
+
+.quick-panel .setting-row {
+  padding: 10px 0;
+}
+
+.quick-tone {
+  padding: 12px 0 2px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 14px;
+}
+
+.quick-nav {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.quick-nav .btn {
+  flex: 1;
+  justify-content: center;
+}
+
+/* ---------- power circle ---------- */
+
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.power-circle {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid;
+  background: transparent;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s, transform 0.1s;
+}
+
+.power-circle:active {
+  transform: scale(0.9);
+}
+
+.power-circle.armed {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.power-circle.paused {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.power-circle.snoozed {
+  color: var(--text-dim);
+  border-color: var(--text-dim);
+}
+
+.task-card .title-row .task-title {
+  margin: 0;
+}
+
 /* ---------- system health + troubleshooting ---------- */
 
 .health-pill {
