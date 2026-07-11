@@ -143,7 +143,7 @@ export default function App() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [when, setWhen] = useState<WhenChoice | "custom">("hour");
+  const [when, setWhen] = useState<WhenChoice | "custom" | "none">("hour");
   const [customWhen, setCustomWhen] = useState<Date>(() => quickFireAt("hour"));
 
   useEffect(() => {
@@ -300,10 +300,13 @@ export default function App() {
 
   const addPreset = useCallback(
     (preset: Preset) => {
-      const fireAt = when === "custom" ? customWhen : quickFireAt(when);
+      const fireAt =
+        when === "none"
+          ? null
+          : (when === "custom" ? customWhen : quickFireAt(when)).toISOString();
       const input: NewTaskInput = {
         title: title.trim() || "Reminder",
-        fireAt: fireAt.toISOString(),
+        fireAt,
         nagIntervalSeconds: preset.intervalSeconds,
         nagMaxCount: preset.nagMaxCount,
         escalationMode: preset.escalationMode,
@@ -474,6 +477,19 @@ export default function App() {
                   ]}
                 >
                   Pick…
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[styles.whenChip, when === "none" && styles.whenChipActive]}
+                onPress={() => setWhen("none")}
+              >
+                <Text
+                  style={[
+                    styles.whenChipText,
+                    when === "none" && styles.whenChipTextActive,
+                  ]}
+                >
+                  No date
                 </Text>
               </Pressable>
             </View>
@@ -694,9 +710,10 @@ interface EditSheetProps {
 function EditSheet({ task, onSave, onClose }: EditSheetProps) {
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes ?? "");
+  const [dated, setDated] = useState(task.fireAt != null);
   const [fireAt, setFireAt] = useState<Date>(() => {
-    const parsed = new Date(task.fireAt);
-    return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+    const parsed = task.fireAt ? new Date(task.fireAt) : quickFireAt("hour");
+    return Number.isNaN(parsed.getTime()) ? quickFireAt("hour") : parsed;
   });
   const [intervalSeconds, setIntervalSeconds] = useState(task.nagIntervalSeconds);
   const [maxCount, setMaxCount] = useState(task.nagMaxCount ?? 6);
@@ -744,55 +761,66 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
             multiline
           />
 
-          <Text style={styles.editorLabel}>FIRES</Text>
-          <DateTimePicker
-            value={fireAt}
-            mode="datetime"
-            display="spinner"
-            themeVariant="dark"
-            onChange={(_event, selected) => {
-              if (selected) setFireAt(selected);
-            }}
-          />
-          <View style={styles.whenRow}>
-            {TIME_OF_DAY_CHIPS.map((chip) => (
-              <Pressable
-                key={chip.label}
-                style={styles.whenChip}
-                onPress={() => setFireAt((d) => atTimeOfDay(d, chip.hour))}
-              >
-                <Text style={styles.whenChipText}>{chip.label}</Text>
-              </Pressable>
-            ))}
+          <View style={styles.settingRow}>
+            <Text style={styles.settingName}>Has a date</Text>
+            <Toggle value={dated} label="Has a date" onChange={setDated} />
           </View>
-          <View style={styles.whenRow}>
-            <Pressable
-              style={styles.whenChip}
-              onPress={() =>
-                setFireAt((d) => {
-                  const today = new Date();
-                  today.setHours(d.getHours(), d.getMinutes(), 0, 0);
-                  return today;
-                })
-              }
-            >
-              <Text style={styles.whenChipText}>Today</Text>
-            </Pressable>
-            <Pressable
-              style={styles.whenChip}
-              onPress={() => setFireAt((d) => new Date(d.getTime() + 86_400_000))}
-            >
-              <Text style={styles.whenChipText}>+1 day</Text>
-            </Pressable>
-            <Pressable
-              style={styles.whenChip}
-              onPress={() =>
-                setFireAt((d) => new Date(d.getTime() + 7 * 86_400_000))
-              }
-            >
-              <Text style={styles.whenChipText}>+1 week</Text>
-            </Pressable>
-          </View>
+          {!dated ? (
+            <Text style={styles.settingDesc}>
+              Undated — parked with no alarm until you give it a time.
+            </Text>
+          ) : (
+            <>
+              <DateTimePicker
+                value={fireAt}
+                mode="datetime"
+                display="spinner"
+                themeVariant="dark"
+                onChange={(_event, selected) => {
+                  if (selected) setFireAt(selected);
+                }}
+              />
+              <View style={styles.whenRow}>
+                {TIME_OF_DAY_CHIPS.map((chip) => (
+                  <Pressable
+                    key={chip.label}
+                    style={styles.whenChip}
+                    onPress={() => setFireAt((d) => atTimeOfDay(d, chip.hour))}
+                  >
+                    <Text style={styles.whenChipText}>{chip.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <View style={styles.whenRow}>
+                <Pressable
+                  style={styles.whenChip}
+                  onPress={() =>
+                    setFireAt((d) => {
+                      const today = new Date();
+                      today.setHours(d.getHours(), d.getMinutes(), 0, 0);
+                      return today;
+                    })
+                  }
+                >
+                  <Text style={styles.whenChipText}>Today</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.whenChip}
+                  onPress={() => setFireAt((d) => new Date(d.getTime() + 86_400_000))}
+                >
+                  <Text style={styles.whenChipText}>+1 day</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.whenChip}
+                  onPress={() =>
+                    setFireAt((d) => new Date(d.getTime() + 7 * 86_400_000))
+                  }
+                >
+                  <Text style={styles.whenChipText}>+1 week</Text>
+                </Pressable>
+              </View>
+            </>
+          )}
 
           <Text style={styles.editorLabel}>NAG EVERY</Text>
           <View style={styles.whenRow}>
@@ -853,7 +881,7 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
                 onSave({
                   title,
                   notes,
-                  fireAt: fireAt.toISOString(),
+                  fireAt: dated ? fireAt.toISOString() : null,
                   nagIntervalSeconds: intervalSeconds,
                   nagMaxCount: maxCount,
                   escalationMode: shrink ? "shrink" : "none",
@@ -903,7 +931,7 @@ function TaskCard({
   const powerColor =
     power === "paused"
       ? colors.danger
-      : power === "snoozed"
+      : power === "snoozed" || power === "undated"
         ? colors.textSecondary
         : colors.accent;
 
@@ -961,6 +989,8 @@ function TaskCard({
             </Text>
           ) : paused ? (
             <Text style={styles.caption}>Paused — no alerts until resumed</Text>
+          ) : task.fireAt == null ? (
+            <Text style={styles.caption}>No date — tap to add one</Text>
           ) : (
             <>
               <Text style={[styles.caption, ageLabel ? styles.metaOverdue : null]}>

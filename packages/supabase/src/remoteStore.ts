@@ -19,7 +19,7 @@ export interface TaskRow {
   notes: string | null;
   created_at: string;
   updated_at: string;
-  fire_at: string;
+  fire_at: string | null;
   nag_interval_seconds: number;
   nag_max_count: number | null;
   nag_until: string | null;

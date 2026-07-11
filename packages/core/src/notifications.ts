@@ -34,23 +34,26 @@ export function isNagNotificationId(identifier: string): boolean {
 }
 
 /**
- * A task should be nagging only while it's open, not deleted, and not
- * paused (spec §3.1). `dismissedAt` is the PowerCircle: set = alerts off
- * without completing or deleting the task.
+ * A task should be nagging only while it's open, not deleted, not paused,
+ * and dated (spec §3.1). `dismissedAt` is the PowerCircle: set = alerts off.
+ * A null `fireAt` is an "undated" task — parked with no alarm, so nothing
+ * to schedule.
  */
 export function isNaggable(task: Task): boolean {
   return (
     task.completedAt == null &&
     task.deletedAt == null &&
-    task.dismissedAt == null
+    task.dismissedAt == null &&
+    task.fireAt != null
   );
 }
 
-/** The PowerCircle's three states: armed, paused (alerts off), or snoozed. */
-export type PowerState = "armed" | "paused" | "snoozed";
+/** The PowerCircle's states: armed, paused (alerts off), snoozed, or undated. */
+export type PowerState = "armed" | "paused" | "snoozed" | "undated";
 
 export function powerStateFor(task: Task, now: Date = new Date()): PowerState {
   if (task.dismissedAt != null) return "paused";
+  if (task.fireAt == null) return "undated";
   if (task.snoozeCount > 0 && Date.parse(task.fireAt) > now.getTime()) {
     return "snoozed";
   }
@@ -95,7 +98,8 @@ export function planNagNotifications(
 
   const schedulable: SchedulableTask[] = active.map((task) => ({
     id: task.id,
-    fireAt: new Date(task.fireAt),
+    // isNaggable guarantees a non-null fireAt for everything in `active`.
+    fireAt: new Date(task.fireAt as string),
     nagIntervalSeconds: task.nagIntervalSeconds,
     nagMaxCount: task.nagMaxCount,
     nagUntil: task.nagUntil ? new Date(task.nagUntil) : null,

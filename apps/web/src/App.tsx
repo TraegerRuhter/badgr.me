@@ -125,7 +125,7 @@ export default function App() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [when, setWhen] = useState<WhenChoice | "custom">("hour");
+  const [when, setWhen] = useState<WhenChoice | "custom" | "none">("hour");
   const [customWhen, setCustomWhen] = useState<string>(() =>
     toLocalInputValue(quickFireAt("hour"))
   );
@@ -286,18 +286,18 @@ export default function App() {
 
   const addPreset = useCallback(
     (preset: Preset) => {
-      const fireAt =
-        when === "custom"
-          ? new Date(customWhen)
-          : quickFireAt(when);
-      // An unparseable custom value falls back to the default choice rather
-      // than creating a task that fires "now" by accident.
-      const resolved = Number.isNaN(fireAt.getTime())
-        ? quickFireAt("hour")
-        : fireAt;
+      let fireAt: string | null;
+      if (when === "none") {
+        fireAt = null;
+      } else {
+        const date = when === "custom" ? new Date(customWhen) : quickFireAt(when);
+        // An unparseable custom value falls back to the default choice rather
+        // than creating a task that fires "now" by accident.
+        fireAt = (Number.isNaN(date.getTime()) ? quickFireAt("hour") : date).toISOString();
+      }
       const input: NewTaskInput = {
         title: title.trim() || "Reminder",
-        fireAt: resolved.toISOString(),
+        fireAt,
         nagIntervalSeconds: preset.intervalSeconds,
         nagMaxCount: preset.nagMaxCount,
         escalationMode: preset.escalationMode,
@@ -447,6 +447,13 @@ export default function App() {
               >
                 <Icon name="clock" size={13} strokeWidth={2.4} />
                 Pick…
+              </button>
+              <button
+                type="button"
+                className={`when-chip${when === "none" ? " active" : ""}`}
+                onClick={() => setWhen("none")}
+              >
+                No date
               </button>
             </div>
             {when === "custom" ? (
@@ -707,6 +714,8 @@ function TaskCard({
             <span>Done {formatDateTime(task.completedAt as string)}</span>
           ) : paused ? (
             <span>Paused — no alerts until resumed</span>
+          ) : task.fireAt == null ? (
+            <span>No date — tap to add one</span>
           ) : (
             <>
               <span className={ageLabel ? "meta-overdue" : undefined}>
@@ -800,8 +809,9 @@ interface EditSheetProps {
 function EditSheet({ task, onSave, onClose }: EditSheetProps) {
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes ?? "");
+  const [dated, setDated] = useState(task.fireAt != null);
   const [fireAt, setFireAt] = useState(() =>
-    toLocalInputValue(new Date(task.fireAt))
+    toLocalInputValue(task.fireAt ? new Date(task.fireAt) : quickFireAt("hour"))
   );
   const [intervalSeconds, setIntervalSeconds] = useState(task.nagIntervalSeconds);
   const [maxCount, setMaxCount] = useState(task.nagMaxCount ?? 6);
@@ -830,10 +840,15 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
 
   const save = () => {
     const parsed = new Date(fireAt);
+    const nextFireAt = !dated
+      ? null
+      : Number.isNaN(parsed.getTime())
+        ? undefined
+        : parsed.toISOString();
     onSave({
       title,
       notes,
-      fireAt: Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString(),
+      fireAt: nextFireAt,
       nagIntervalSeconds: intervalSeconds,
       nagMaxCount: maxCount,
       escalationMode: shrink ? "shrink" : "none",
@@ -878,28 +893,35 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
           onChange={(event) => setNotes(event.target.value)}
         />
 
-        <label className="editor-label" htmlFor="edit-when">
-          Fires
-        </label>
-        <input
-          id="edit-when"
-          type="datetime-local"
-          className="field dt-input"
-          value={fireAt}
-          onChange={(event) => setFireAt(event.target.value)}
-        />
-        <div className="when-row">
-          {TIME_OF_DAY_CHIPS.map((chip) => (
-            <button
-              key={chip.label}
-              type="button"
-              className="when-chip"
-              onClick={() => setDatePart((d) => atTimeOfDay(d, chip.hour))}
-            >
-              {chip.label}
-            </button>
-          ))}
+        <div className="setting-row">
+          <p className="setting-name">Has a date</p>
+          <Switch checked={dated} label="Has a date" onChange={setDated} />
         </div>
+        {!dated ? (
+          <p className="setting-desc">
+            Undated — parked with no alarm until you give it a time.
+          </p>
+        ) : (
+          <>
+            <input
+              id="edit-when"
+              type="datetime-local"
+              className="field dt-input"
+              value={fireAt}
+              onChange={(event) => setFireAt(event.target.value)}
+            />
+            <div className="when-row">
+              {TIME_OF_DAY_CHIPS.map((chip) => (
+                <button
+                  key={chip.label}
+                  type="button"
+                  className="when-chip"
+                  onClick={() => setDatePart((d) => atTimeOfDay(d, chip.hour))}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
         <div className="when-row">
           <button
             type="button"
@@ -933,6 +955,8 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
             +1 week
           </button>
         </div>
+          </>
+        )}
 
         <div className="editor-label">Nag every</div>
         <div className="when-row">

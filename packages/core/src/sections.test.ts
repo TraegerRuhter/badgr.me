@@ -95,3 +95,27 @@ describe("groupTasksIntoSections", () => {
     expect(sections[0]?.tasks.map((t) => t.title)).toEqual(["fresh", "old"]);
   });
 });
+
+describe("undated bucketing", () => {
+  it("parks a null-fireAt task in the undated drawer, after Later", () => {
+    const sections = groupTasksIntoSections(
+      [
+        makeTask({ title: "someday", fireAt: null }),
+        makeTask({ title: "soon", fireAt: at(2026, 6, 8, 22) }),
+      ],
+      NOW
+    );
+    expect(sections.map((s) => s.bucket)).toEqual(["today", "undated"]);
+    expect(sections.find((s) => s.bucket === "undated")?.tasks[0]?.title).toBe(
+      "someday"
+    );
+  });
+
+  it("a completed undated task still goes to done, not undated", () => {
+    const sections = groupTasksIntoSections(
+      [makeTask({ fireAt: null, completedAt: NOW.toISOString() })],
+      NOW
+    );
+    expect(sections[0]?.bucket).toBe("done");
+  });
+});

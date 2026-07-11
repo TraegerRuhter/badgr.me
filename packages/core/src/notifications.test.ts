@@ -189,3 +189,22 @@ describe("power circle", () => {
     ).toBe("armed");
   });
 });
+
+describe("undated tasks", () => {
+  const undatedBase = {
+    id: "u1", title: "someday", notes: null,
+    createdAt: "2026-07-08T12:00:00.000Z", updatedAt: "2026-07-08T12:00:00.000Z",
+    fireAt: null, nagIntervalSeconds: 60, nagMaxCount: 5, nagUntil: null,
+    escalationMode: "none", completedAt: null, dismissedAt: null, repeatRule: null,
+    priority: 0, deviceOrigin: "web", deletedAt: null, snoozeCount: 0,
+  } as const;
+
+  it("an undated task is not naggable and plans nothing", () => {
+    expect(isNaggable(undatedBase)).toBe(false);
+    expect(planNagNotifications([undatedBase])).toHaveLength(0);
+  });
+
+  it("powerStateFor reports 'undated'", () => {
+    expect(powerStateFor(undatedBase)).toBe("undated");
+  });
+});

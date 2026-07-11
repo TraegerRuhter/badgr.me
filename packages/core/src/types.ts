@@ -9,7 +9,8 @@ export interface Task {
   notes: string | null;
   createdAt: string;
   updatedAt: string;
-  fireAt: string;
+  /** ISO fire time, or null for an "undated" task that never nags (spec §4.1). */
+  fireAt: string | null;
   nagIntervalSeconds: number;
   nagMaxCount: number | null;
   nagUntil: string | null;
