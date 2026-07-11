@@ -933,7 +933,8 @@
   background: var(--danger-soft);
 }
 
-.power-circle.snoozed {
+.power-circle.snoozed,
+.power-circle.undated {
   color: var(--text-dim);
   border-color: var(--text-dim);
 }

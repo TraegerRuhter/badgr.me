@@ -43,7 +43,7 @@ describe("refreshNextOccurrenceCopy", () => {
 
     expect(schedule).toHaveBeenCalledWith(
       snoozed.id,
-      new Date(snoozed.fireAt),
+      new Date(snoozed.fireAt as string),
       { title: "Renew passport", body: "Fresh AI nag" }
     );
   });

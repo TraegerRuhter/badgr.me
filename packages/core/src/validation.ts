@@ -9,7 +9,7 @@ export const taskSchema = z.object({
   notes: z.string().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
-  fireAt: z.string().datetime(),
+  fireAt: z.string().datetime().nullable(),
   nagIntervalSeconds: z.number().int().positive(),
   nagMaxCount: z.number().int().positive().nullable(),
   nagUntil: z.string().datetime().nullable(),

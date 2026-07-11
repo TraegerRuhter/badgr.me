@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   notes TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  fire_at TEXT NOT NULL,
+  fire_at TEXT,
   nag_interval_seconds INTEGER NOT NULL,
   nag_max_count INTEGER,
   nag_until TEXT,
@@ -66,6 +66,17 @@ async function columnExists(
   return cols.some((c) => c.name === column);
 }
 
+async function columnIsNotNull(
+  db: SQLite.SQLiteDatabase,
+  table: string,
+  column: string
+): Promise<boolean> {
+  const cols = await db.getAllAsync<{ name: string; notnull: number }>(
+    `PRAGMA table_info(${table})`
+  );
+  return cols.some((c) => c.name === column && c.notnull === 1);
+}
+
 /**
  * Ordered, idempotent schema migrations. Each runs once, gated by the db's
  * `PRAGMA user_version`; the column-existence checks make them safe to re-run
@@ -79,6 +90,42 @@ const MIGRATIONS: ((db: SQLite.SQLiteDatabase) => Promise<void>)[] = [
         "ALTER TABLE tasks ADD COLUMN snooze_count INTEGER NOT NULL DEFAULT 0;"
       );
     }
+  },
+  // v2 — undated mode: fire_at becomes nullable. SQLite can't drop a NOT NULL
+  // constraint in place, so rebuild the table (only when it's still NOT NULL,
+  // i.e. an existing install; fresh installs already got the nullable column).
+  async (db) => {
+    if (!(await columnIsNotNull(db, "tasks", "fire_at"))) return;
+    await db.execAsync(`
+      CREATE TABLE tasks_new (
+        id TEXT PRIMARY KEY NOT NULL,
+        title TEXT NOT NULL,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        fire_at TEXT,
+        nag_interval_seconds INTEGER NOT NULL,
+        nag_max_count INTEGER,
+        nag_until TEXT,
+        escalation_mode TEXT NOT NULL DEFAULT 'none',
+        completed_at TEXT,
+        dismissed_at TEXT,
+        repeat_rule TEXT,
+        priority INTEGER NOT NULL DEFAULT 0,
+        device_origin TEXT NOT NULL,
+        deleted_at TEXT,
+        snooze_count INTEGER NOT NULL DEFAULT 0
+      );
+      INSERT INTO tasks_new SELECT
+        id, title, notes, created_at, updated_at, fire_at,
+        nag_interval_seconds, nag_max_count, nag_until, escalation_mode,
+        completed_at, dismissed_at, repeat_rule, priority, device_origin,
+        deleted_at, snooze_count
+      FROM tasks;
+      DROP TABLE tasks;
+      ALTER TABLE tasks_new RENAME TO tasks;
+      CREATE INDEX IF NOT EXISTS tasks_fire_at_idx ON tasks (fire_at);
+    `);
   },
 ];
 
@@ -106,7 +153,7 @@ interface TaskRow {
   notes: string | null;
   created_at: string;
   updated_at: string;
-  fire_at: string;
+  fire_at: string | null;
   nag_interval_seconds: number;
   nag_max_count: number | null;
   nag_until: string | null;
@@ -145,8 +192,8 @@ function rowToTask(row: TaskRow): Task {
 export interface NewTaskInput {
   title: string;
   notes?: string | null;
-  /** ISO-8601 first-fire time. */
-  fireAt: string;
+  /** ISO-8601 first-fire time, or null for an undated task. */
+  fireAt: string | null;
   nagIntervalSeconds: number;
   nagMaxCount?: number | null;
   nagUntil?: string | null;
@@ -155,13 +202,16 @@ export interface NewTaskInput {
   priority?: number;
 }
 
-/** All non-deleted tasks, open ones first, then by soonest fire time. */
+/**
+ * All non-deleted tasks, open ones first, then by soonest fire time.
+ * Undated tasks (null fire_at) sort after dated ones.
+ */
 export async function listTasks(): Promise<Task[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<TaskRow>(
     `SELECT * FROM tasks
      WHERE deleted_at IS NULL
-     ORDER BY (completed_at IS NOT NULL), fire_at ASC`
+     ORDER BY (completed_at IS NOT NULL), (fire_at IS NULL), fire_at ASC`
   );
   return rows.map(rowToTask);
 }
@@ -284,7 +334,8 @@ export async function deleteTask(id: string): Promise<void> {
 export interface TaskPatch {
   title?: string;
   notes?: string | null;
-  fireAt?: string;
+  /** A string sets the fire time; null clears it (makes the task undated). */
+  fireAt?: string | null;
   nagIntervalSeconds?: number;
   nagMaxCount?: number | null;
   escalationMode?: EscalationMode;
@@ -310,8 +361,10 @@ export async function updateTask(
     const trimmed = patch.notes?.trim() ?? "";
     next.notes = trimmed.length > 0 ? trimmed : null;
   }
-  if (patch.fireAt !== undefined && !Number.isNaN(Date.parse(patch.fireAt))) {
-    next.fireAt = patch.fireAt;
+  if (patch.fireAt !== undefined) {
+    // null clears the date (undated); a valid string sets it; garbage is ignored.
+    if (patch.fireAt === null) next.fireAt = null;
+    else if (!Number.isNaN(Date.parse(patch.fireAt))) next.fireAt = patch.fireAt;
   }
   if (
     patch.nagIntervalSeconds !== undefined &&

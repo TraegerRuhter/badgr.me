@@ -17,7 +17,8 @@ export function shiftFireAt(
   deltaSeconds: number,
   now: Date = new Date()
 ): string {
-  const current = new Date(task.fireAt);
+  // An undated task being nudged gets a concrete time again, based on now.
+  const current = task.fireAt == null ? now : new Date(task.fireAt);
   const currentMs = Number.isNaN(current.getTime())
     ? now.getTime()
     : current.getTime();
@@ -44,7 +45,11 @@ export const ADJUST_STEPS: readonly {
  * Compact age tag for an overdue fire time — the red "(4d)" from the
  * reference list. Empty string when not overdue.
  */
-export function overdueAgeLabel(fireAt: string, now: Date = new Date()): string {
+export function overdueAgeLabel(
+  fireAt: string | null,
+  now: Date = new Date()
+): string {
+  if (fireAt == null) return "";
   const fireMs = Date.parse(fireAt);
   if (Number.isNaN(fireMs)) return "";
   const ageMs = now.getTime() - fireMs;

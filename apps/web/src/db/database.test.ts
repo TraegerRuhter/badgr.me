@@ -72,7 +72,8 @@ describe("web task store", () => {
     ]);
     const [task] = await listTasks();
     expect(task.title).toBe("Salvage me");
-    expect(Number.isNaN(Date.parse(task.fireAt))).toBe(false);
+    // An unparseable fireAt is salvaged as null (undated), not a bogus date.
+    expect(task.fireAt).toBeNull();
     expect(task.nagIntervalSeconds).toBeGreaterThan(0);
     expect(task.escalationMode).toBe("none");
     expect(task.snoozeCount).toBe(0);

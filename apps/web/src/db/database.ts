@@ -50,7 +50,8 @@ function normalizeStoredTask(raw: unknown): Task | null {
     notes: typeof t.notes === "string" ? t.notes : null,
     createdAt: isoString(t.createdAt, now),
     updatedAt: isoString(t.updatedAt, now),
-    fireAt: isoString(t.fireAt, now),
+    // null (or unparseable) fireAt means undated — a valid, distinct state.
+    fireAt: isoStringOrNull(t.fireAt),
     nagIntervalSeconds:
       typeof t.nagIntervalSeconds === "number" &&
       Number.isFinite(t.nagIntervalSeconds) &&
@@ -112,8 +113,8 @@ export async function initDatabase(): Promise<void> {
 export interface NewTaskInput {
   title: string;
   notes?: string | null;
-  /** ISO-8601 first-fire time. */
-  fireAt: string;
+  /** ISO-8601 first-fire time, or null for an undated task. */
+  fireAt: string | null;
   nagIntervalSeconds: number;
   nagMaxCount?: number | null;
   nagUntil?: string | null;
@@ -122,7 +123,10 @@ export interface NewTaskInput {
   priority?: number;
 }
 
-/** All non-deleted tasks, open ones first, then by soonest fire time. */
+/**
+ * All non-deleted tasks, open ones first, then by soonest fire time.
+ * Undated tasks (null fireAt) sort after dated ones within their group.
+ */
 export async function listTasks(): Promise<Task[]> {
   return readAll()
     .filter((task) => task.deletedAt == null)
@@ -130,7 +134,7 @@ export async function listTasks(): Promise<Task[]> {
       const aDone = a.completedAt != null ? 1 : 0;
       const bDone = b.completedAt != null ? 1 : 0;
       if (aDone !== bDone) return aDone - bDone;
-      return a.fireAt.localeCompare(b.fireAt);
+      return (a.fireAt ?? "￿").localeCompare(b.fireAt ?? "￿");
     });
 }
 
@@ -215,7 +219,8 @@ export async function snoozeTask(
 export interface TaskPatch {
   title?: string;
   notes?: string | null;
-  fireAt?: string;
+  /** A string sets the fire time; null clears it (makes the task undated). */
+  fireAt?: string | null;
   nagIntervalSeconds?: number;
   nagMaxCount?: number | null;
   escalationMode?: EscalationMode;
@@ -241,8 +246,10 @@ export async function updateTask(
     const trimmed = patch.notes?.trim() ?? "";
     task.notes = trimmed.length > 0 ? trimmed : null;
   }
-  if (patch.fireAt !== undefined && !Number.isNaN(Date.parse(patch.fireAt))) {
-    task.fireAt = patch.fireAt;
+  if (patch.fireAt !== undefined) {
+    // null clears the date (undated); a valid string sets it; garbage is ignored.
+    if (patch.fireAt === null) task.fireAt = null;
+    else if (!Number.isNaN(Date.parse(patch.fireAt))) task.fireAt = patch.fireAt;
   }
   if (
     patch.nagIntervalSeconds !== undefined &&

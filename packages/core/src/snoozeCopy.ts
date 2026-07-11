@@ -55,6 +55,11 @@ export async function refreshNextOccurrenceCopy(
     isNaggable(fresh) &&
     fresh.snoozeCount === snoozed.snoozeCount
   ) {
-    await deps.scheduleNextOccurrence(snoozed.id, new Date(fresh.fireAt), copy);
+    // isNaggable guarantees a non-null fireAt.
+    await deps.scheduleNextOccurrence(
+      snoozed.id,
+      new Date(fresh.fireAt as string),
+      copy
+    );
   }
 }

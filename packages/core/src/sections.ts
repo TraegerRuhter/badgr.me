@@ -12,6 +12,7 @@ export type TaskBucket =
   | "tomorrow"
   | "week"
   | "later"
+  | "undated"
   | "done";
 
 /** Render order of the drawers, top to bottom. */
@@ -21,6 +22,7 @@ export const BUCKET_ORDER: readonly TaskBucket[] = [
   "tomorrow",
   "week",
   "later",
+  "undated",
   "done",
 ];
 
@@ -30,6 +32,7 @@ export const BUCKET_LABELS: Record<TaskBucket, string> = {
   tomorrow: "Tomorrow",
   week: "Next 7 days",
   later: "Later",
+  undated: "Undated",
   done: "Done",
 };
 
@@ -53,6 +56,8 @@ function addDays(date: Date, days: number): Date {
  */
 export function bucketForTask(task: Task, now: Date = new Date()): TaskBucket {
   if (task.completedAt != null) return "done";
+  // Undated tasks (no alarm) get parked in their own drawer, never nagging.
+  if (task.fireAt == null) return "undated";
 
   const fireAt = new Date(task.fireAt);
   if (Number.isNaN(fireAt.getTime()) || fireAt.getTime() <= now.getTime()) {
