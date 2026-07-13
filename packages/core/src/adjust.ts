@@ -30,13 +30,18 @@ export function shiftFireAt(
   return new Date(Math.max(shifted, now.getTime())).toISOString();
 }
 
-/** The quick-adjust steps offered on an expanded task, in display order. */
+/**
+ * The quick-adjust steps offered on an expanded task, in display order —
+ * matches the reference app's panel exactly: 3 steps × 2 directions = 6
+ * buttons. The panel that renders these must never collapse when one is
+ * tapped, so a burst of taps (e.g. +1d +1d +1d) all land on the same task
+ * without having to re-select it each time.
+ */
 export const ADJUST_STEPS: readonly {
   label: string;
   seconds: number;
 }[] = [
   { label: "5m", seconds: 5 * 60 },
-  { label: "30m", seconds: 30 * 60 },
   { label: "1h", seconds: 3600 },
   { label: "1d", seconds: 86400 },
 ];

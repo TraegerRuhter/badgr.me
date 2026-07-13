@@ -3,6 +3,7 @@ import {
   atTimeOfDay,
   DEFAULT_SETTINGS,
   groupTasksIntoSections,
+  isRepeatRule,
   NAG_TONES,
   overdueAgeLabel,
   planNagNotifications,
@@ -10,6 +11,8 @@ import {
   powerStateFor,
   quickFireAt,
   refreshNextOccurrenceCopy,
+  REPEAT_LABELS,
+  REPEAT_RULES,
   SETTING_LIMITS,
   swipeActionFor,
   TIME_OF_DAY_CHIPS,
@@ -18,6 +21,7 @@ import {
   type AppSettings,
   type EscalationMode,
   type NagTone,
+  type RepeatRule,
   type Task,
   type TaskBucket,
   type WhenChoice,
@@ -723,6 +727,12 @@ function TaskCard({
                 {ageLabel ? ` ${ageLabel}` : ""} · every{" "}
                 {formatInterval(task.nagIntervalSeconds)}
               </span>
+              {isRepeatRule(task.repeatRule) ? (
+                <span className="repeat-badge">
+                  <Icon name="repeat" size={10} strokeWidth={2.6} />
+                  {REPEAT_LABELS[task.repeatRule]}
+                </span>
+              ) : null}
               <span className={`armed-badge${pendingCount === 0 ? " zero" : ""}`}>
                 <Icon name="bell" size={11} strokeWidth={2.6} />
                 {pendingCount}
@@ -816,6 +826,9 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
   const [intervalSeconds, setIntervalSeconds] = useState(task.nagIntervalSeconds);
   const [maxCount, setMaxCount] = useState(task.nagMaxCount ?? 6);
   const [shrink, setShrink] = useState(task.escalationMode === "shrink");
+  const [repeat, setRepeat] = useState<RepeatRule | null>(
+    isRepeatRule(task.repeatRule) ? task.repeatRule : null
+  );
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -852,6 +865,8 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
       nagIntervalSeconds: intervalSeconds,
       nagMaxCount: maxCount,
       escalationMode: shrink ? "shrink" : "none",
+      // A repeat needs a date to repeat from — clearing the date clears it too.
+      repeatRule: dated ? repeat : null,
     });
   };
 
@@ -955,6 +970,26 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
             +1 week
           </button>
         </div>
+            <div className="editor-label">Repeat</div>
+            <div className="when-row">
+              <button
+                type="button"
+                className={`when-chip${repeat === null ? " active" : ""}`}
+                onClick={() => setRepeat(null)}
+              >
+                Never
+              </button>
+              {REPEAT_RULES.map((rule) => (
+                <button
+                  key={rule}
+                  type="button"
+                  className={`when-chip${repeat === rule ? " active" : ""}`}
+                  onClick={() => setRepeat(rule)}
+                >
+                  {REPEAT_LABELS[rule]}
+                </button>
+              ))}
+            </div>
           </>
         )}
 

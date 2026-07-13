@@ -76,6 +76,8 @@ export const iconPaths = {
   help: "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM9.8 9.5a2.3 2.3 0 0 1 4.5.7c0 1.4-2.1 1.8-2.1 3M12 16.5v.01",
   /** Pencil — edit. */
   pencil: "M4 20l.9-3.6L15.6 5.7a2 2 0 0 1 2.8 0l-.1-.1a2 2 0 0 1 0 2.8L7.6 19.1L4 20zM13.5 7.8l2.7 2.7",
+  /** Two arrows chasing each other — repeat/recurring. */
+  repeat: "M17.5 8.5H5.5a2 2 0 0 1-2-2v-1M6.5 15.5h12a2 2 0 0 1 2 2v1M14.5 5.5l3 3-3 3M9.5 18.5l-3-3 3-3",
   plus: "M12 5v14M5 12h14",
   /** Lightning bolt — the fast preset. */
   bolt: "M13.5 3L5.5 13.5h5L9.5 21l8-10.5h-5l1-7.5z",

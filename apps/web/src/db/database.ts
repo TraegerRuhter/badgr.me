@@ -1,5 +1,7 @@
 import {
   applySnooze,
+  isRepeatRule,
+  nextRepeatFireAt,
   shiftFireAt,
   type LocalTaskStore,
   type EscalationMode,
@@ -168,11 +170,26 @@ export async function createTask(input: NewTaskInput): Promise<Task> {
 }
 
 /** Marks a task done — the scheduler then cancels its remaining nags. */
+/**
+ * Marking a task done: a one-off task actually completes. A repeating task
+ * (repeatRule set, and it has a date to repeat from) instead advances to its
+ * next occurrence and resets snoozeCount — the task never "finishes", it just
+ * recurs, matching the reference app's repeat semantics.
+ */
 export async function completeTask(id: string): Promise<void> {
   const now = new Date().toISOString();
   const tasks = readAll();
   const task = tasks.find((t) => t.id === id);
   if (!task) return;
+
+  if (task.repeatRule && isRepeatRule(task.repeatRule) && task.fireAt != null) {
+    task.fireAt = nextRepeatFireAt(task.fireAt, task.repeatRule);
+    task.snoozeCount = 0;
+    task.updatedAt = now;
+    writeAll(tasks);
+    return;
+  }
+
   task.completedAt = now;
   task.updatedAt = now;
   writeAll(tasks);
@@ -224,6 +241,8 @@ export interface TaskPatch {
   nagIntervalSeconds?: number;
   nagMaxCount?: number | null;
   escalationMode?: EscalationMode;
+  /** A RepeatRule string sets it; null/"" clears it (one-off task again). */
+  repeatRule?: string | null;
 }
 
 /**
@@ -268,6 +287,9 @@ export async function updateTask(
   }
   if (patch.escalationMode !== undefined) {
     task.escalationMode = patch.escalationMode;
+  }
+  if (patch.repeatRule !== undefined) {
+    task.repeatRule = isRepeatRule(patch.repeatRule) ? patch.repeatRule : null;
   }
   task.updatedAt = new Date().toISOString();
   writeAll(tasks);

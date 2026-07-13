@@ -2,6 +2,7 @@ import {
   ADJUST_STEPS,
   atTimeOfDay,
   groupTasksIntoSections,
+  isRepeatRule,
   overdueAgeLabel,
   parseNotificationId,
   planNagNotifications,
@@ -9,6 +10,8 @@ import {
   powerStateFor,
   quickFireAt,
   refreshNextOccurrenceCopy,
+  REPEAT_LABELS,
+  REPEAT_RULES,
   swipeActionFor,
   toneLevelOffset,
   DEFAULT_SETTINGS,
@@ -19,6 +22,7 @@ import {
   type AppSettings,
   type EscalationMode,
   type NagTone,
+  type RepeatRule,
   type Task,
   type TaskBucket,
   type WhenChoice,
@@ -718,6 +722,9 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
   const [intervalSeconds, setIntervalSeconds] = useState(task.nagIntervalSeconds);
   const [maxCount, setMaxCount] = useState(task.nagMaxCount ?? 6);
   const [shrink, setShrink] = useState(task.escalationMode === "shrink");
+  const [repeat, setRepeat] = useState<RepeatRule | null>(
+    isRepeatRule(task.repeatRule) ? task.repeatRule : null
+  );
 
   const intervals = INTERVAL_CHOICES.some((c) => c.seconds === intervalSeconds)
     ? INTERVAL_CHOICES
@@ -819,6 +826,39 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
                   <Text style={styles.whenChipText}>+1 week</Text>
                 </Pressable>
               </View>
+
+              <Text style={styles.editorLabel}>REPEAT</Text>
+              <View style={styles.whenRow}>
+                <Pressable
+                  style={[styles.whenChip, repeat === null && styles.whenChipActive]}
+                  onPress={() => setRepeat(null)}
+                >
+                  <Text
+                    style={[
+                      styles.whenChipText,
+                      repeat === null && styles.whenChipTextActive,
+                    ]}
+                  >
+                    Never
+                  </Text>
+                </Pressable>
+                {REPEAT_RULES.map((rule) => (
+                  <Pressable
+                    key={rule}
+                    style={[styles.whenChip, repeat === rule && styles.whenChipActive]}
+                    onPress={() => setRepeat(rule)}
+                  >
+                    <Text
+                      style={[
+                        styles.whenChipText,
+                        repeat === rule && styles.whenChipTextActive,
+                      ]}
+                    >
+                      {REPEAT_LABELS[rule]}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
             </>
           )}
 
@@ -885,6 +925,8 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
                   nagIntervalSeconds: intervalSeconds,
                   nagMaxCount: maxCount,
                   escalationMode: shrink ? "shrink" : "none",
+                  // A repeat needs a date to repeat from — clearing the date clears it too.
+                  repeatRule: dated ? repeat : null,
                 })
               }
             />
@@ -931,7 +973,7 @@ function TaskCard({
   const powerColor =
     power === "paused"
       ? colors.danger
-      : power === "snoozed" || power === "undated"
+      : power === "snoozed"
         ? colors.textSecondary
         : colors.accent;
 
@@ -998,6 +1040,14 @@ function TaskCard({
                 {ageLabel ? ` ${ageLabel}` : ""} · every{" "}
                 {formatInterval(task.nagIntervalSeconds)}
               </Text>
+              {isRepeatRule(task.repeatRule) ? (
+                <View style={styles.repeatBadge}>
+                  <Icon name="repeat" size={10} strokeWidth={2.6} color={colors.textSecondary} />
+                  <Text style={styles.repeatBadgeText}>
+                    {REPEAT_LABELS[task.repeatRule]}
+                  </Text>
+                </View>
+              ) : null}
               <View
                 style={[styles.armedBadge, pendingCount === 0 && styles.armedBadgeZero]}
               >
@@ -2030,6 +2080,20 @@ const styles = StyleSheet.create({
     color: colors.accent,
   },
   armedBadgeTextZero: {
+    color: colors.textSecondary,
+  },
+  repeatBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surfaceRaised,
+  },
+  repeatBadgeText: {
+    fontSize: 11,
+    fontWeight: "700",
     color: colors.textSecondary,
   },
   actions: {
