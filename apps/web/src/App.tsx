@@ -1,11 +1,13 @@
 import {
   ADJUST_STEPS,
+  appendChecklistItem,
   atTimeOfDay,
   DEFAULT_SETTINGS,
   groupTasksIntoSections,
   isRepeatRule,
   NAG_TONES,
   overdueAgeLabel,
+  parseChecklist,
   planNagNotifications,
   planOptionsFrom,
   powerStateFor,
@@ -16,6 +18,7 @@ import {
   SETTING_LIMITS,
   swipeActionFor,
   TIME_OF_DAY_CHIPS,
+  toggleChecklistItem,
   toneLevelOffset,
   WHEN_CHOICES,
   type AppSettings,
@@ -319,6 +322,21 @@ export default function App() {
     [runMutation]
   );
 
+  // Toggling a checklist row rewrites just that line of notes — reads the
+  // current task fresh rather than trusting a stale closure, since a
+  // background sync could have applied a remote edit in the meantime.
+  const handleToggleChecklistItem = useCallback(
+    (taskId: string, lineIndex: number) =>
+      runMutation(async () => {
+        const current = await getTask(taskId);
+        if (!current || current.notes == null) return null;
+        return updateTask(taskId, {
+          notes: toggleChecklistItem(current.notes, lineIndex),
+        });
+      }),
+    [runMutation]
+  );
+
   const handleSnooze = useCallback(
     (taskId: string) =>
       runMutation(async () => {
@@ -561,6 +579,9 @@ export default function App() {
                         setExpandedId((prev) => (prev === task.id ? null : task.id))
                       }
                       onAdjust={(delta) => handleAdjust(task.id, delta)}
+                      onToggleChecklistItem={(lineIndex) =>
+                        handleToggleChecklistItem(task.id, lineIndex)
+                      }
                       onEdit={() => setEditingId(task.id)}
                       onTogglePause={() =>
                         runMutation(() =>
@@ -613,6 +634,7 @@ interface TaskCardProps {
   expanded: boolean;
   onToggleExpand: () => void;
   onAdjust: (deltaSeconds: number) => void;
+  onToggleChecklistItem: (lineIndex: number) => void;
   onEdit: () => void;
   onTogglePause: () => void;
   onComplete: () => void;
@@ -628,6 +650,7 @@ function TaskCard({
   expanded,
   onToggleExpand,
   onAdjust,
+  onToggleChecklistItem,
   onEdit,
   onTogglePause,
   onComplete,
@@ -639,6 +662,7 @@ function TaskCard({
   const power = powerStateFor(task);
   const paused = power === "paused";
   const ageLabel = done || paused ? "" : overdueAgeLabel(task.fireAt);
+  const checklist = parseChecklist(task.notes);
 
   // A done task can only be swiped back open; an open task maps each side
   // through the (possibly swapped) gesture settings.
@@ -740,6 +764,24 @@ function TaskCard({
             </>
           )}
         </p>
+        {checklist.length > 0 ? (
+          <ul className="checklist">
+            {checklist.map((item) => (
+              <li key={item.lineIndex}>
+                <button
+                  type="button"
+                  className={`checklist-row${item.checked ? " checked" : ""}`}
+                  onClick={() => onToggleChecklistItem(item.lineIndex)}
+                >
+                  <span className="checklist-box">
+                    {item.checked ? <Icon name="check" size={11} strokeWidth={3} /> : null}
+                  </span>
+                  <span className="checklist-text">{item.text}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {expanded && !done ? (
           <div className="adjust-panel">
             <div className="adjust-row">
@@ -903,10 +945,18 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
           id="edit-notes"
           className="field editor-notes"
           rows={3}
-          placeholder="Shown as the notification body (instead of the sass)."
+          placeholder="Shown as the notification body (instead of the sass). Lines like &quot;- [ ] item&quot; become a checklist."
           value={notes}
           onChange={(event) => setNotes(event.target.value)}
         />
+        <button
+          type="button"
+          className="checklist-add-btn"
+          onClick={() => setNotes((current) => appendChecklistItem(current))}
+        >
+          <Icon name="plus" size={13} />
+          Add checklist item
+        </button>
 
         <div className="setting-row">
           <p className="setting-name">Has a date</p>

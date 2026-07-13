@@ -9,6 +9,7 @@ export * from "./sync";
 export * from "./adjust";
 export * from "./composer";
 export * from "./concurrency";
+export * from "./checklist";
 export * from "./repeat";
 export * from "./sections";
 export * from "./settings";
