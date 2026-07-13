@@ -1,9 +1,11 @@
 import {
   ADJUST_STEPS,
+  appendChecklistItem,
   atTimeOfDay,
   groupTasksIntoSections,
   isRepeatRule,
   overdueAgeLabel,
+  parseChecklist,
   parseNotificationId,
   planNagNotifications,
   planOptionsFrom,
@@ -13,6 +15,7 @@ import {
   REPEAT_LABELS,
   REPEAT_RULES,
   swipeActionFor,
+  toggleChecklistItem,
   toneLevelOffset,
   DEFAULT_SETTINGS,
   NAG_TONES,
@@ -325,6 +328,21 @@ export default function App() {
   const handleAdjust = useCallback(
     (taskId: string, deltaSeconds: number) =>
       runMutation(() => adjustTaskFireAt(taskId, deltaSeconds)),
+    [runMutation]
+  );
+
+  // Toggling a checklist row rewrites just that line of notes — reads the
+  // current task fresh rather than trusting a stale closure, since a
+  // background sync could have applied a remote edit in the meantime.
+  const handleToggleChecklistItem = useCallback(
+    (taskId: string, lineIndex: number) =>
+      runMutation(async () => {
+        const current = await getTask(taskId);
+        if (!current || current.notes == null) return null;
+        return updateTask(taskId, {
+          notes: toggleChecklistItem(current.notes, lineIndex),
+        });
+      }),
     [runMutation]
   );
 
@@ -641,6 +659,9 @@ export default function App() {
               setExpandedId((prev) => (prev === item.id ? null : item.id))
             }
             onAdjust={(delta) => handleAdjust(item.id, delta)}
+            onToggleChecklistItem={(lineIndex) =>
+              handleToggleChecklistItem(item.id, lineIndex)
+            }
             onEdit={() => setEditingId(item.id)}
             onTogglePause={() =>
               runMutation(() => setTaskPaused(item.id, item.dismissedAt == null))
@@ -763,10 +784,19 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
             style={[styles.input, styles.editorNotes]}
             value={notes}
             onChangeText={setNotes}
-            placeholder="Shown as the notification body (instead of the sass)."
+            placeholder={
+              'Shown as the notification body (instead of the sass). Lines like "- [ ] item" become a checklist.'
+            }
             placeholderTextColor={colors.textSecondary}
             multiline
           />
+          <Pressable
+            style={styles.checklistAddBtn}
+            onPress={() => setNotes((current) => appendChecklistItem(current))}
+          >
+            <Icon name="plus" size={13} color={colors.textSecondary} />
+            <Text style={styles.checklistAddBtnText}>Add checklist item</Text>
+          </Pressable>
 
           <View style={styles.settingRow}>
             <Text style={styles.settingName}>Has a date</Text>
@@ -944,6 +974,7 @@ interface TaskCardProps {
   expanded: boolean;
   onToggleExpand: () => void;
   onAdjust: (deltaSeconds: number) => void;
+  onToggleChecklistItem: (lineIndex: number) => void;
   onEdit: () => void;
   onTogglePause: () => void;
   onComplete: () => void;
@@ -959,6 +990,7 @@ function TaskCard({
   expanded,
   onToggleExpand,
   onAdjust,
+  onToggleChecklistItem,
   onEdit,
   onTogglePause,
   onComplete,
@@ -970,6 +1002,7 @@ function TaskCard({
   const power = powerStateFor(task);
   const paused = power === "paused";
   const ageLabel = done || paused ? "" : overdueAgeLabel(task.fireAt);
+  const checklist = parseChecklist(task.notes);
   const powerColor =
     power === "paused"
       ? colors.danger
@@ -1069,6 +1102,30 @@ function TaskCard({
             </>
           )}
         </View>
+        {checklist.length > 0 ? (
+          <View style={styles.checklist}>
+            {checklist.map((item) => (
+              <Pressable
+                key={item.lineIndex}
+                style={styles.checklistRow}
+                onPress={() => onToggleChecklistItem(item.lineIndex)}
+              >
+                <View
+                  style={[styles.checklistBox, item.checked && styles.checklistBoxChecked]}
+                >
+                  {item.checked ? (
+                    <Icon name="check" size={10} strokeWidth={3} color={colors.onAccent} />
+                  ) : null}
+                </View>
+                <Text
+                  style={[styles.checklistText, item.checked && styles.checklistTextChecked]}
+                >
+                  {item.text}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
         <View style={styles.actions}>
           {done ? (
             <ActionButton icon="reopen" label="Reopen" tone="quiet" onPress={onReopen} />
@@ -2093,6 +2150,57 @@ const styles = StyleSheet.create({
   },
   repeatBadgeText: {
     fontSize: 11,
+    fontWeight: "700",
+    color: colors.textSecondary,
+  },
+  checklist: {
+    marginTop: 8,
+    gap: 2,
+  },
+  checklistRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    paddingVertical: 3,
+  },
+  checklistBox: {
+    width: 16,
+    height: 16,
+    marginTop: 1,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: colors.textSecondary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checklistBoxChecked: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  checklistText: {
+    flex: 1,
+    fontSize: 13.5,
+    color: colors.textPrimary,
+  },
+  checklistTextChecked: {
+    color: colors.textSecondary,
+    textDecorationLine: "line-through",
+  },
+  checklistAddBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    alignSelf: "flex-start",
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: colors.border,
+  },
+  checklistAddBtnText: {
+    fontSize: 12,
     fontWeight: "700",
     color: colors.textSecondary,
   },
