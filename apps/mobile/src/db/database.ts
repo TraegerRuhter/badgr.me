@@ -1,5 +1,7 @@
 import {
   applySnooze,
+  isRepeatRule,
+  nextRepeatFireAt,
   shiftFireAt,
   type DeviceOrigin,
   type EscalationMode,
@@ -277,9 +279,27 @@ export async function createTask(input: NewTaskInput): Promise<Task> {
 }
 
 /** Marks a task done — the scheduler then cancels its remaining nags (spec §3.4). */
+/**
+ * Marking a task done: a one-off task actually completes. A repeating task
+ * (repeatRule set, and it has a date to repeat from) instead advances to its
+ * next occurrence and resets snoozeCount — the task never "finishes", it just
+ * recurs, matching the reference app's repeat semantics.
+ */
 export async function completeTask(id: string): Promise<void> {
   const db = await getDb();
   const now = new Date().toISOString();
+  const task = await getTask(id);
+  if (!task) return;
+
+  if (task.repeatRule && isRepeatRule(task.repeatRule) && task.fireAt != null) {
+    const fireAt = nextRepeatFireAt(task.fireAt, task.repeatRule);
+    await db.runAsync(
+      "UPDATE tasks SET fire_at = ?, snooze_count = 0, updated_at = ? WHERE id = ?",
+      [fireAt, now, id]
+    );
+    return;
+  }
+
   await db.runAsync(
     "UPDATE tasks SET completed_at = ?, updated_at = ? WHERE id = ?",
     [now, now, id]
@@ -339,6 +359,8 @@ export interface TaskPatch {
   nagIntervalSeconds?: number;
   nagMaxCount?: number | null;
   escalationMode?: EscalationMode;
+  /** A RepeatRule string sets it; null/"" clears it (one-off task again). */
+  repeatRule?: string | null;
 }
 
 /**
@@ -384,11 +406,14 @@ export async function updateTask(
   if (patch.escalationMode !== undefined) {
     next.escalationMode = patch.escalationMode;
   }
+  if (patch.repeatRule !== undefined) {
+    next.repeatRule = isRepeatRule(patch.repeatRule) ? patch.repeatRule : null;
+  }
   next.updatedAt = new Date().toISOString();
 
   const db = await getDb();
   await db.runAsync(
-    "UPDATE tasks SET title = ?, notes = ?, fire_at = ?, nag_interval_seconds = ?, nag_max_count = ?, escalation_mode = ?, updated_at = ? WHERE id = ?",
+    "UPDATE tasks SET title = ?, notes = ?, fire_at = ?, nag_interval_seconds = ?, nag_max_count = ?, escalation_mode = ?, repeat_rule = ?, updated_at = ? WHERE id = ?",
     [
       next.title,
       next.notes,
@@ -396,6 +421,7 @@ export async function updateTask(
       next.nagIntervalSeconds,
       next.nagMaxCount,
       next.escalationMode,
+      next.repeatRule,
       next.updatedAt,
       id,
     ]

@@ -489,6 +489,18 @@
   color: var(--text-dim);
 }
 
+.repeat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .meta-overdue {
   color: var(--danger);
   font-weight: 700;
@@ -569,7 +581,7 @@
 
 .adjust-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 6px;
 }
 
