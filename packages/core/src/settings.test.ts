@@ -21,10 +21,21 @@ describe("normalizeSettings", () => {
     const stored = {
       gestures: { swipeEnabled: false, swapDirections: true },
       nag: { snoozeMinutes: 25, maxPerTask: 3, globalBudget: 24 },
-      copy: { tone: "savage", aiRewrites: false },
+      copy: { tone: "savage", pack: "drill", aiRewrites: false },
       sync: { paused: true },
     };
     expect(normalizeSettings(stored)).toEqual(stored);
+  });
+
+  it("backfills pack for a blob predating personality packs, and rejects an unknown pack", () => {
+    const legacy = normalizeSettings({
+      copy: { tone: "standard", aiRewrites: true },
+    });
+    expect(legacy.copy.pack).toBe(DEFAULT_SETTINGS.copy.pack);
+    const bogus = normalizeSettings({
+      copy: { tone: "standard", pack: "villain", aiRewrites: true },
+    });
+    expect(bogus.copy.pack).toBe(DEFAULT_SETTINGS.copy.pack);
   });
 
   it("backfills groups an older blob doesn't have", () => {
@@ -84,15 +95,16 @@ describe("toneLevelOffset", () => {
 });
 
 describe("planOptionsFrom", () => {
-  it("maps the nag knobs and tone onto planner options", () => {
+  it("maps the nag knobs, tone, and pack onto planner options", () => {
     const settings = normalizeSettings({
       nag: { snoozeMinutes: 5, maxPerTask: 4, globalBudget: 32 },
-      copy: { tone: "savage", aiRewrites: true },
+      copy: { tone: "savage", pack: "corporate", aiRewrites: true },
     });
     expect(planOptionsFrom(settings)).toEqual({
       globalBudget: 32,
       perTaskCap: 4,
       copyLevelOffset: toneLevelOffset("savage"),
+      copyPack: "corporate",
     });
   });
 });

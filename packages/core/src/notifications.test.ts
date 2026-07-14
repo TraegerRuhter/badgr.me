@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { generateTemplateCopy } from "./copy";
 import { SAFE_GLOBAL_NOTIFICATION_BUDGET } from "./nag";
 import {
   buildNotificationId,
@@ -75,6 +76,24 @@ describe("planNagNotifications", () => {
       { now: NOW }
     );
     expect(planned).toEqual([]);
+  });
+
+  it("carries the selected personality pack into the notification copy", () => {
+    // A task with no notes so the ladder (not the notes verbatim) drives copy.
+    const classic = planNagNotifications([makeTask({ notes: null })], {
+      now: NOW,
+      copyPack: "classic",
+    });
+    const drill = planNagNotifications([makeTask({ notes: null })], {
+      now: NOW,
+      copyPack: "drill",
+    });
+    expect(classic[0]?.body).not.toBe(drill[0]?.body);
+    // And the first occurrence (snoozeCount 0, index 0 => level 0) must be the
+    // drill pack's level-0 line, proving the pack actually threaded through.
+    expect(drill[0]?.body).toBe(
+      generateTemplateCopy(makeTask({ notes: null }), 0, "drill").body
+    );
   });
 
   it("never exceeds the global budget across many tasks", () => {

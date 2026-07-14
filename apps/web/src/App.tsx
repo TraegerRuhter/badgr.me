@@ -5,6 +5,8 @@ import {
   DEFAULT_SETTINGS,
   groupTasksIntoSections,
   isRepeatRule,
+  NAG_PACK_LABELS,
+  NAG_PACKS,
   NAG_TONES,
   overdueAgeLabel,
   parseChecklist,
@@ -1333,6 +1335,24 @@ function SettingsDrawer({ settings, onChange, onClose }: SettingsDrawerProps) {
             value={c.tone}
             onChange={(tone) => onChange({ ...settings, copy: { ...c, tone } })}
           />
+        </div>
+
+        <div className="setting-col">
+          <p className="setting-desc">
+            Personality — the <em>voice</em> your nags speak in.
+          </p>
+          <div className="when-row">
+            {NAG_PACKS.map((pack) => (
+              <button
+                key={pack}
+                type="button"
+                className={`when-chip${c.pack === pack ? " active" : ""}`}
+                onClick={() => onChange({ ...settings, copy: { ...c, pack } })}
+              >
+                {NAG_PACK_LABELS[pack]}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="setting-row">

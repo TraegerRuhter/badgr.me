@@ -1,4 +1,4 @@
-import { generateTemplateCopy } from "./copy";
+import { generateTemplateCopy, type NagPack } from "./copy";
 import { allocateNotificationBudget, type SchedulableTask } from "./nag";
 import type { Task } from "./types";
 
@@ -80,6 +80,8 @@ export interface PlanOptions {
    * (see `toneLevelOffset`). Clamped at zero per occurrence.
    */
   copyLevelOffset?: number;
+  /** Personality pack for the escalation copy (default "classic"). */
+  copyPack?: NagPack;
   now?: Date;
 }
 
@@ -125,7 +127,7 @@ export function planNagNotifications(
         0,
         task.snoozeCount + index + (options?.copyLevelOffset ?? 0)
       );
-      const copy = generateTemplateCopy(task, level);
+      const copy = generateTemplateCopy(task, level, options?.copyPack);
       planned.push({
         identifier: buildNotificationId(task.id, index),
         taskId: task.id,
