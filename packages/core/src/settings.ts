@@ -1,3 +1,4 @@
+import { isNagPack, type NagPack } from "./copy";
 import {
   MAX_BURST_PER_TASK,
   SAFE_GLOBAL_NOTIFICATION_BUDGET,
@@ -41,6 +42,8 @@ export const NAG_TONES: readonly NagTone[] = ["gentle", "standard", "savage"];
 
 export interface CopySettings {
   tone: NagTone;
+  /** Voice of the escalation copy — see `NagPack`. Separate from tone. */
+  pack: NagPack;
   /** Ask the nag-ai proxy for rewritten lines after a snooze (when configured). */
   aiRewrites: boolean;
 }
@@ -75,6 +78,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   copy: {
     tone: "standard",
+    pack: "classic",
     aiRewrites: true,
   },
   sync: {
@@ -141,6 +145,7 @@ export function normalizeSettings(raw: unknown): AppSettings {
       tone: NAG_TONES.includes(c.tone as NagTone)
         ? (c.tone as NagTone)
         : d.copy.tone,
+      pack: isNagPack(c.pack) ? c.pack : d.copy.pack,
       aiRewrites: bool(c.aiRewrites, d.copy.aiRewrites),
     },
     sync: {
@@ -189,10 +194,12 @@ export function planOptionsFrom(settings: AppSettings): {
   globalBudget: number;
   perTaskCap: number;
   copyLevelOffset: number;
+  copyPack: NagPack;
 } {
   return {
     globalBudget: settings.nag.globalBudget,
     perTaskCap: settings.nag.maxPerTask,
     copyLevelOffset: toneLevelOffset(settings.copy.tone),
+    copyPack: settings.copy.pack,
   };
 }

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { generateTemplateCopy, templateCopyGenerator } from "./copy";
+import {
+  generateTemplateCopy,
+  isNagPack,
+  NAG_PACKS,
+  templateCopyGenerator,
+} from "./copy";
 import type { Task } from "./types";
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -87,6 +92,54 @@ describe("generateTemplateCopy", () => {
       expect(rank).toBeGreaterThanOrEqual(maxRank);
       maxRank = Math.max(maxRank, rank);
     }
+  });
+});
+
+describe("nag personality packs", () => {
+  it("defaults to the classic pack when none is given", () => {
+    const task = makeTask();
+    expect(generateTemplateCopy(task, 0).body).toBe(
+      generateTemplateCopy(task, 0, "classic").body
+    );
+  });
+
+  it("gives each pack a distinct voice at the same level", () => {
+    const task = makeTask();
+    const bodies = NAG_PACKS.map((pack) => generateTemplateCopy(task, 5, pack).body);
+    // Five packs, five distinct lines at a mid escalation level.
+    expect(new Set(bodies).size).toBe(NAG_PACKS.length);
+  });
+
+  it("every pack escalates monotonically without softening", () => {
+    const task = makeTask();
+    for (const pack of NAG_PACKS) {
+      const order: string[] = [];
+      for (let level = 0; level <= 30; level++) {
+        const body = generateTemplateCopy(task, level, pack).body;
+        if (!order.includes(body)) order.push(body);
+      }
+      let maxRank = -1;
+      for (let level = 0; level <= 30; level++) {
+        const rank = order.indexOf(generateTemplateCopy(task, level, pack).body);
+        expect(rank).toBeGreaterThanOrEqual(maxRank);
+        maxRank = Math.max(maxRank, rank);
+      }
+    }
+  });
+
+  it("still shows user notes verbatim regardless of pack", () => {
+    const task = makeTask({ notes: "bring the insurance card" });
+    for (const pack of NAG_PACKS) {
+      expect(generateTemplateCopy(task, 5, pack).body).toBe(
+        "bring the insurance card"
+      );
+    }
+  });
+
+  it("isNagPack guards the known packs", () => {
+    expect(isNagPack("drill")).toBe(true);
+    expect(isNagPack("villain")).toBe(false);
+    expect(isNagPack(null)).toBe(false);
   });
 });
 

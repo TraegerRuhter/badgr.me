@@ -4,6 +4,8 @@ import {
   atTimeOfDay,
   groupTasksIntoSections,
   isRepeatRule,
+  NAG_PACK_LABELS,
+  NAG_PACKS,
   overdueAgeLabel,
   parseChecklist,
   parseNotificationId,
@@ -1631,6 +1633,30 @@ function SettingsSheet({
               label="Nag tone"
               onChange={(tone) => onChange({ ...settings, copy: { ...c, tone } })}
             />
+          </View>
+
+          <View style={styles.settingCol}>
+            <Text style={styles.settingDesc}>
+              Personality — the voice your nags speak in.
+            </Text>
+            <View style={styles.whenRow}>
+              {NAG_PACKS.map((pack) => (
+                <Pressable
+                  key={pack}
+                  style={[styles.whenChip, c.pack === pack && styles.whenChipActive]}
+                  onPress={() => onChange({ ...settings, copy: { ...c, pack } })}
+                >
+                  <Text
+                    style={[
+                      styles.whenChipText,
+                      c.pack === pack && styles.whenChipTextActive,
+                    ]}
+                  >
+                    {NAG_PACK_LABELS[pack]}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
 
           <View style={styles.settingRow}>
