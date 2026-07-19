@@ -36,7 +36,7 @@ import { colors, radii, spacing, typography, type IconName } from "@alarmed/ui";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { StatusBar } from "expo-status-bar";
 import * as Notifications from "expo-notifications";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
@@ -371,6 +371,36 @@ export default function App() {
     [runMutation]
   );
 
+  // Stable, id-keyed row handlers so a memoized TaskCard only re-renders when
+  // its own task/settings/expanded state actually changes — not on every
+  // composer keystroke, search toggle, or background re-sync.
+  const handleToggleExpand = useCallback((taskId: string) => {
+    setExpandedId((prev) => (prev === taskId ? null : taskId));
+  }, []);
+
+  const handleEdit = useCallback((taskId: string) => setEditingId(taskId), []);
+
+  const handleTogglePause = useCallback(
+    (taskId: string, pause: boolean) =>
+      runMutation(() => setTaskPaused(taskId, pause)),
+    [runMutation]
+  );
+
+  const handleComplete = useCallback(
+    (taskId: string) => runMutation(() => completeTask(taskId)),
+    [runMutation]
+  );
+
+  const handleReopen = useCallback(
+    (taskId: string) => runMutation(() => reopenTask(taskId)),
+    [runMutation]
+  );
+
+  const handleDelete = useCallback(
+    (taskId: string) => runMutation(() => deleteTask(taskId)),
+    [runMutation]
+  );
+
   useEffect(() => {
     const subscription = Notifications.addNotificationResponseReceivedListener(
       (response) => {
@@ -657,21 +687,15 @@ export default function App() {
             settings={settings}
             pendingCount={plannedByTask.get(item.id) ?? 0}
             expanded={expandedId === item.id}
-            onToggleExpand={() =>
-              setExpandedId((prev) => (prev === item.id ? null : item.id))
-            }
-            onAdjust={(delta) => handleAdjust(item.id, delta)}
-            onToggleChecklistItem={(lineIndex) =>
-              handleToggleChecklistItem(item.id, lineIndex)
-            }
-            onEdit={() => setEditingId(item.id)}
-            onTogglePause={() =>
-              runMutation(() => setTaskPaused(item.id, item.dismissedAt == null))
-            }
-            onComplete={() => runMutation(() => completeTask(item.id))}
-            onReopen={() => runMutation(() => reopenTask(item.id))}
-            onDelete={() => runMutation(() => deleteTask(item.id))}
-            onSnooze={() => handleSnooze(item.id)}
+            onToggleExpand={handleToggleExpand}
+            onAdjust={handleAdjust}
+            onToggleChecklistItem={handleToggleChecklistItem}
+            onEdit={handleEdit}
+            onTogglePause={handleTogglePause}
+            onComplete={handleComplete}
+            onReopen={handleReopen}
+            onDelete={handleDelete}
+            onSnooze={handleSnooze}
           />
         )}
       />
@@ -974,18 +998,22 @@ interface TaskCardProps {
   settings: AppSettings;
   pendingCount: number;
   expanded: boolean;
-  onToggleExpand: () => void;
-  onAdjust: (deltaSeconds: number) => void;
-  onToggleChecklistItem: (lineIndex: number) => void;
-  onEdit: () => void;
-  onTogglePause: () => void;
-  onComplete: () => void;
-  onReopen: () => void;
-  onDelete: () => void;
-  onSnooze: () => void;
+  onToggleExpand: (taskId: string) => void;
+  onAdjust: (taskId: string, deltaSeconds: number) => void;
+  onToggleChecklistItem: (taskId: string, lineIndex: number) => void;
+  onEdit: (taskId: string) => void;
+  onTogglePause: (taskId: string, pause: boolean) => void;
+  onComplete: (taskId: string) => void;
+  onReopen: (taskId: string) => void;
+  onDelete: (taskId: string) => void;
+  onSnooze: (taskId: string) => void;
 }
 
-function TaskCard({
+// Memoized so a parent re-render (typing, search, another card expanding, a
+// background re-sync) skips every row whose task, settings, and pending count
+// are unchanged. The handlers above are id-keyed and stable, so only
+// `task`/`settings`/`pendingCount`/`expanded` drive re-renders.
+const TaskCard = memo(function TaskCard({
   task,
   settings,
   pendingCount,
@@ -1012,18 +1040,22 @@ function TaskCard({
         ? colors.textSecondary
         : colors.accent;
 
+  const reopen = () => onReopen(task.id);
+  const complete = () => onComplete(task.id);
+  const snooze = () => onSnooze(task.id);
+
   // A done task can only be swiped back open; an open task maps each side
   // through the (possibly swapped) gesture settings.
   const rightAction = done
-    ? onReopen
+    ? reopen
     : swipeActionFor(settings, "right") === "complete"
-      ? onComplete
-      : onSnooze;
+      ? complete
+      : snooze;
   const leftAction = done
     ? null
     : swipeActionFor(settings, "left") === "complete"
-      ? onComplete
-      : onSnooze;
+      ? complete
+      : snooze;
   const rightIcon: IconName = done
     ? "reopen"
     : swipeActionFor(settings, "right") === "complete"
@@ -1043,7 +1075,7 @@ function TaskCard({
       <Pressable
         style={styles.card}
         disabled={done}
-        onPress={onToggleExpand}
+        onPress={() => onToggleExpand(task.id)}
         accessibilityHint="Expands quick due-date adjustments"
       >
         <View style={[styles.cardRail, done && styles.cardRailDone]} />
@@ -1052,7 +1084,7 @@ function TaskCard({
             <Pressable
               style={[styles.powerCircle, { borderColor: powerColor }, paused && styles.powerCirclePaused]}
               accessibilityLabel={paused ? "Resume alerts" : "Pause alerts"}
-              onPress={onTogglePause}
+              onPress={() => onTogglePause(task.id, !paused)}
             >
               <Icon name="power" size={13} strokeWidth={2.4} color={powerColor} />
             </Pressable>
@@ -1110,7 +1142,7 @@ function TaskCard({
               <Pressable
                 key={item.lineIndex}
                 style={styles.checklistRow}
-                onPress={() => onToggleChecklistItem(item.lineIndex)}
+                onPress={() => onToggleChecklistItem(task.id, item.lineIndex)}
               >
                 <View
                   style={[styles.checklistBox, item.checked && styles.checklistBoxChecked]}
@@ -1130,15 +1162,20 @@ function TaskCard({
         ) : null}
         <View style={styles.actions}>
           {done ? (
-            <ActionButton icon="reopen" label="Reopen" tone="quiet" onPress={onReopen} />
+            <ActionButton icon="reopen" label="Reopen" tone="quiet" onPress={reopen} />
           ) : (
             <>
-              <ActionButton icon="check" label="Done" tone="accent" onPress={onComplete} />
-              <ActionButton icon="snooze" label="Snooze" tone="quiet" onPress={onSnooze} />
+              <ActionButton icon="check" label="Done" tone="accent" onPress={complete} />
+              <ActionButton icon="snooze" label="Snooze" tone="quiet" onPress={snooze} />
             </>
           )}
           <View style={styles.actionsSpacer} />
-          <ActionButton icon="trash" label="Delete" tone="danger" onPress={onDelete} />
+          <ActionButton
+            icon="trash"
+            label="Delete"
+            tone="danger"
+            onPress={() => onDelete(task.id)}
+          />
         </View>
         {expanded && !done ? (
           <View style={styles.adjustPanel}>
@@ -1150,7 +1187,7 @@ function TaskCard({
                     styles.adjustBtn,
                     pressed && styles.adjustBtnPressed,
                   ]}
-                  onPress={() => onAdjust(-step.seconds)}
+                  onPress={() => onAdjust(task.id, -step.seconds)}
                 >
                   <Text style={styles.adjustBtnTextMinus}>−{step.label}</Text>
                 </Pressable>
@@ -1165,7 +1202,7 @@ function TaskCard({
                     styles.adjustBtnPlus,
                     pressed && styles.adjustBtnPressed,
                   ]}
-                  onPress={() => onAdjust(step.seconds)}
+                  onPress={() => onAdjust(task.id, step.seconds)}
                 >
                   <Text style={styles.adjustBtnTextPlus}>+{step.label}</Text>
                 </Pressable>
@@ -1176,7 +1213,7 @@ function TaskCard({
                 styles.adjustEdit,
                 pressed && styles.adjustBtnPressed,
               ]}
-              onPress={onEdit}
+              onPress={() => onEdit(task.id)}
             >
               <Icon name="pencil" size={14} color={colors.textSecondary} />
               <Text style={styles.adjustEditText}>Edit task</Text>
@@ -1186,7 +1223,7 @@ function TaskCard({
       </Pressable>
     </SwipeableCard>
   );
-}
+});
 
 interface ActionButtonProps {
   icon: IconName;

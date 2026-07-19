@@ -31,7 +31,7 @@ import {
   type TaskBucket,
   type WhenChoice,
 } from "@alarmed/core";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { nagCopyGenerator } from "./copy/nagAi";
 import {
@@ -362,6 +362,36 @@ export default function App() {
     [runMutation]
   );
 
+  // Stable, id-keyed row handlers so a memoized TaskCard only re-renders when
+  // its own task/settings/expanded state actually changes — not on every
+  // composer keystroke, search toggle, or background re-sync.
+  const handleToggleExpand = useCallback((taskId: string) => {
+    setExpandedId((prev) => (prev === taskId ? null : taskId));
+  }, []);
+
+  const handleEdit = useCallback((taskId: string) => setEditingId(taskId), []);
+
+  const handleTogglePause = useCallback(
+    (taskId: string, pause: boolean) =>
+      runMutation(() => setTaskPaused(taskId, pause)),
+    [runMutation]
+  );
+
+  const handleComplete = useCallback(
+    (taskId: string) => runMutation(() => completeTask(taskId)),
+    [runMutation]
+  );
+
+  const handleReopen = useCallback(
+    (taskId: string) => runMutation(() => reopenTask(taskId)),
+    [runMutation]
+  );
+
+  const handleDelete = useCallback(
+    (taskId: string) => runMutation(() => deleteTask(taskId)),
+    [runMutation]
+  );
+
   if (loading) {
     return (
       <div className="center-fill">
@@ -577,23 +607,15 @@ export default function App() {
                       settings={settings}
                       pendingCount={plannedByTask.get(task.id) ?? 0}
                       expanded={expandedId === task.id}
-                      onToggleExpand={() =>
-                        setExpandedId((prev) => (prev === task.id ? null : task.id))
-                      }
-                      onAdjust={(delta) => handleAdjust(task.id, delta)}
-                      onToggleChecklistItem={(lineIndex) =>
-                        handleToggleChecklistItem(task.id, lineIndex)
-                      }
-                      onEdit={() => setEditingId(task.id)}
-                      onTogglePause={() =>
-                        runMutation(() =>
-                          setTaskPaused(task.id, task.dismissedAt == null)
-                        )
-                      }
-                      onComplete={() => runMutation(() => completeTask(task.id))}
-                      onReopen={() => runMutation(() => reopenTask(task.id))}
-                      onDelete={() => runMutation(() => deleteTask(task.id))}
-                      onSnooze={() => handleSnooze(task.id)}
+                      onToggleExpand={handleToggleExpand}
+                      onAdjust={handleAdjust}
+                      onToggleChecklistItem={handleToggleChecklistItem}
+                      onEdit={handleEdit}
+                      onTogglePause={handleTogglePause}
+                      onComplete={handleComplete}
+                      onReopen={handleReopen}
+                      onDelete={handleDelete}
+                      onSnooze={handleSnooze}
                     />
                   ))}
                 </ul>
@@ -634,18 +656,22 @@ interface TaskCardProps {
   settings: AppSettings;
   pendingCount: number;
   expanded: boolean;
-  onToggleExpand: () => void;
-  onAdjust: (deltaSeconds: number) => void;
-  onToggleChecklistItem: (lineIndex: number) => void;
-  onEdit: () => void;
-  onTogglePause: () => void;
-  onComplete: () => void;
-  onReopen: () => void;
-  onDelete: () => void;
-  onSnooze: () => void;
+  onToggleExpand: (taskId: string) => void;
+  onAdjust: (taskId: string, deltaSeconds: number) => void;
+  onToggleChecklistItem: (taskId: string, lineIndex: number) => void;
+  onEdit: (taskId: string) => void;
+  onTogglePause: (taskId: string, pause: boolean) => void;
+  onComplete: (taskId: string) => void;
+  onReopen: (taskId: string) => void;
+  onDelete: (taskId: string) => void;
+  onSnooze: (taskId: string) => void;
 }
 
-function TaskCard({
+// Memoized so an unrelated App re-render (typing, search, another card
+// expanding, a background re-sync) skips every row whose task, settings, and
+// pending count are unchanged. The handlers above are id-keyed and stable, so
+// only `task`/`settings`/`pendingCount`/`expanded` drive re-renders.
+const TaskCard = memo(function TaskCard({
   task,
   settings,
   pendingCount,
@@ -666,18 +692,22 @@ function TaskCard({
   const ageLabel = done || paused ? "" : overdueAgeLabel(task.fireAt);
   const checklist = parseChecklist(task.notes);
 
+  const reopen = () => onReopen(task.id);
+  const complete = () => onComplete(task.id);
+  const snooze = () => onSnooze(task.id);
+
   // A done task can only be swiped back open; an open task maps each side
   // through the (possibly swapped) gesture settings.
   const rightAction = done
-    ? onReopen
+    ? reopen
     : swipeActionFor(settings, "right") === "complete"
-      ? onComplete
-      : onSnooze;
+      ? complete
+      : snooze;
   const leftAction = done
     ? null
     : swipeActionFor(settings, "left") === "complete"
-      ? onComplete
-      : onSnooze;
+      ? complete
+      : snooze;
   const rightIcon: IconName = done
     ? "reopen"
     : swipeActionFor(settings, "right") === "complete"
@@ -715,7 +745,7 @@ function TaskCard({
           // Buttons keep their own actions; a completed swipe isn't a tap.
           if ((e.target as HTMLElement).closest("button")) return;
           if (didJustDrag()) return;
-          if (!done) onToggleExpand();
+          if (!done) onToggleExpand(task.id);
         }}
         {...handlers}
       >
@@ -732,7 +762,7 @@ function TaskCard({
                     ? "Snoozed — tap to pause alerts"
                     : "Alerts on — tap to pause"
               }
-              onClick={onTogglePause}
+              onClick={() => onTogglePause(task.id, !paused)}
             >
               <Icon name="power" size={13} strokeWidth={2.4} />
             </button>
@@ -773,7 +803,7 @@ function TaskCard({
                 <button
                   type="button"
                   className={`checklist-row${item.checked ? " checked" : ""}`}
-                  onClick={() => onToggleChecklistItem(item.lineIndex)}
+                  onClick={() => onToggleChecklistItem(task.id, item.lineIndex)}
                 >
                   <span className="checklist-box">
                     {item.checked ? <Icon name="check" size={11} strokeWidth={3} /> : null}
@@ -792,7 +822,7 @@ function TaskCard({
                   key={`minus-${step.label}`}
                   type="button"
                   className="adjust-btn minus"
-                  onClick={() => onAdjust(-step.seconds)}
+                  onClick={() => onAdjust(task.id, -step.seconds)}
                 >
                   −{step.label}
                 </button>
@@ -804,13 +834,17 @@ function TaskCard({
                   key={`plus-${step.label}`}
                   type="button"
                   className="adjust-btn plus"
-                  onClick={() => onAdjust(step.seconds)}
+                  onClick={() => onAdjust(task.id, step.seconds)}
                 >
                   +{step.label}
                 </button>
               ))}
             </div>
-            <button type="button" className="adjust-edit" onClick={onEdit}>
+            <button
+              type="button"
+              className="adjust-edit"
+              onClick={() => onEdit(task.id)}
+            >
               <Icon name="pencil" size={14} />
               Edit task
             </button>
@@ -818,23 +852,27 @@ function TaskCard({
         ) : null}
         <div className="card-actions">
           {done ? (
-            <button type="button" className="btn btn-quiet" onClick={onReopen}>
+            <button type="button" className="btn btn-quiet" onClick={reopen}>
               <Icon name="reopen" size={15} />
               Reopen
             </button>
           ) : (
             <>
-              <button type="button" className="btn btn-accent" onClick={onComplete}>
+              <button type="button" className="btn btn-accent" onClick={complete}>
                 <Icon name="check" size={15} />
                 Done
               </button>
-              <button type="button" className="btn btn-quiet" onClick={onSnooze}>
+              <button type="button" className="btn btn-quiet" onClick={snooze}>
                 <Icon name="snooze" size={15} />
                 Snooze
               </button>
             </>
           )}
-          <button type="button" className="btn btn-danger" onClick={onDelete}>
+          <button
+            type="button"
+            className="btn btn-danger"
+            onClick={() => onDelete(task.id)}
+          >
             <Icon name="trash" size={15} />
             Delete
           </button>
@@ -842,7 +880,7 @@ function TaskCard({
       </div>
     </li>
   );
-}
+});
 
 // Cadence choices offered in the editor; a task whose current interval isn't
 // one of these shows an extra chip for it so the selection is never empty.
