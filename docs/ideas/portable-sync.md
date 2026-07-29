@@ -50,15 +50,21 @@ BADGR-SYNC-1
 ```
 
 Plaintext inside: NDJSON, one `Task` per line, **sorted by id with a fixed key
-order**. Canonical ordering means identical state produces identical bytes,
-which makes the thing diffable and debuggable by hand. (Ciphertext still
-differs per export because the IV is random — which is what we want; equal
-ciphertexts would leak that nothing changed.)
+order**, then **gzipped before encryption**. Canonical ordering means identical
+state produces identical bytes, which makes the thing diffable and debuggable by
+hand. (Ciphertext still differs per export because the IV is random — which is
+what we want; equal ciphertexts would leak that nothing changed.)
 
-Sketch of the crypto, subject to the open question below: AES-GCM-256, key
-derived from a user passphrase via PBKDF2/Argon2 with the per-file salt. GCM
-gives integrity for free, so a truncated or tampered file fails loudly instead
-of importing garbage. The version prefix lets the format change later without
+Compression is not a nicety, it's what makes the whole idea practical — see the
+measured sizes below. Compress-then-encrypt has a known caveat (CRIME/BREACH-
+style length leakage) but that attack needs an adversary who can inject chosen
+plaintext into your task list and watch ciphertext sizes over many trials. Not
+our threat model; accepted deliberately.
+
+Crypto, now measured rather than assumed: **AES-256-GCM**, key derived from a
+user passphrase via **PBKDF2-SHA256** with the per-file salt. GCM gives
+integrity for free, so a truncated or tampered file fails loudly instead of
+importing garbage. The version prefix lets the format change later without
 guessing.
 
 ## The honest limitation
@@ -74,17 +80,60 @@ That's a real cost, and it's the thing to decide about before building: is
 owing nothing to a server? For a single user with two devices — plausibly yes.
 It's also strictly better than the current state when Supabase is unconfigured.
 
+## Spike results — the crypto question is settled
+
+The main unknown was whether React Native could do AES-GCM without a native
+module (which would have forced a dev-client build and ruled out Expo Go).
+Answer: **yes, with no native module at all.**
+
+`@noble/ciphers` + `@noble/hashes` (both v2.2.0) are audited, pure-TypeScript,
+**zero-dependency**, and contain no `node:` builtin imports — so Metro bundles
+them as-is. Measured, running noble against Node's WebCrypto as the reference
+implementation:
+
+| Check | Result |
+| --- | --- |
+| Pure-JS PBKDF2 key == WebCrypto PBKDF2 key | identical bytes |
+| Encrypt with noble → decrypt with WebCrypto | round-trips |
+| Encrypt with WebCrypto → decrypt with noble | round-trips |
+| Flipped bit in ciphertext | rejected |
+| Wrong passphrase | rejected (not garbage output) |
+
+Bidirectional interop means the format is **standard AES-GCM, not a
+noble-specific dialect** — mobile and web can each use whichever implementation
+is native to them, and the file stays decryptable by any standard tool. That
+also protects against lock-in: your data is recoverable without this app.
+
+**Sizes** (250 tasks, the finding that matters most):
+
+| Stage | Bytes |
+| --- | --- |
+| NDJSON plaintext | 103,251 |
+| Encrypted + base64 armored | 137,692 |
+| **Gzipped, encrypted, armored** | **2,964** |
+
+A 46× reduction. 250 tasks fit in under 3 KB — small enough to paste directly
+into an email body, no attachment needed. Without compression, base64's 33%
+inflation makes it unwieldy fast.
+
+**Cost:** pure-JS PBKDF2 at 600k iterations (OWASP floor) took 948 ms here vs
+103 ms for native WebCrypto — roughly 9× slower, and a phone will be slower
+still. For a manual, occasional export that's acceptable, and the iteration
+count is tunable if it isn't.
+
+**Not yet verified on-device:** the salt/IV CSPRNG. `expo-crypto` is already a
+dependency and exposes `getRandomBytesAsync`, which is what we'd use, but the
+mobile dependency tree wasn't installable in the environment where this spike
+ran — so confirm it on a real device at implementation time. It's a small risk;
+`expo-crypto` is the sanctioned Expo path for exactly this.
+
 ## Open questions
 
-1. **Crypto availability in React Native.** The web side has WebCrypto natively.
-   RN/Expo does not ship full `SubtleCrypto`; it'd need `expo-crypto`,
-   `expo-standard-web-crypto`, or `react-native-quick-crypto`. This needs a
-   spike before committing to AES-GCM — it's the main technical unknown.
-2. **Key management UX.** A passphrase the user types on both devices is the
+1. **Key management UX.** A passphrase the user types on both devices is the
    simplest model with no server. Losing it means losing the ability to import,
    and there is deliberately no recovery. Is that acceptable, or should the
    first pairing generate a key that's transferred once by QR?
-3. **File growth.** Snapshots carry soft-deleted rows forever. Needs a tombstone
+2. **File growth.** Snapshots carry soft-deleted rows forever. Needs a tombstone
    horizon (drop deletes older than N days) or the file grows without bound.
-4. **Does it replace Supabase sync or sit beside it?** Beside, most likely —
+3. **Does it replace Supabase sync or sit beside it?** Beside, most likely —
    they're different tradeoffs, and the `RemoteTaskStore` seam allows both.
