@@ -1,7 +1,7 @@
 # Build plan: end-to-end encrypted sync (self-hosted + managed)
 
-**Status:** proposed. Not started. Supersedes nothing; extends
-`docs/ideas/portable-sync.md`.
+**Status:** in progress. Phase 1 measured (§3.2) and Phase 2 landed as
+`packages/crypto`. Extends `docs/ideas/portable-sync.md`.
 
 Two tiers, one client, one format:
 
@@ -84,16 +84,17 @@ Numbered because each one gets a test that fails the build if broken.
 
 ## 3. Cryptographic specification
 
-Algorithms follow [Obsidian Sync's published scheme](https://obsidianmd.github.io/sync/security)
-(scrypt → HKDF → AES-256-GCM), with two additions it doesn't document: a
-wrapped data key, and rollback binding.
+Algorithms follow the shape of [Obsidian Sync's published scheme](https://obsidianmd.github.io/sync/security)
+(KDF → HKDF → AES-256-GCM), with two additions it doesn't document — a wrapped
+data key and rollback binding — and one substitution: Argon2id in place of
+scrypt, on the evidence in §3.2.
 
 ### 3.1 Key hierarchy
 
 ```
 vaultPassphrase                    (user secret; never transmitted, in any form)
    │
-   ├─ scrypt(passphrase, kdfSalt, N, r, p, dkLen=32) ──► masterKey
+   ├─ argon2id(passphrase, kdfSalt, m, t, p, dkLen=32) ──► masterKey
    │
    ├─ HKDF-SHA256(masterKey, info="badgr/v1/kek")   ──► KEK
    │
@@ -123,16 +124,33 @@ derived `dataKey` is cached in the OS keystore for the session, so the budget is
 "acceptable app-unlock latency," not "acceptable sync latency." A 2–3 second
 unlock is normal for a vault app.
 
-**Fallback ladder**, in preference order, to be resolved by the Phase 1 gate:
+**Measured** (Node 22 on server hardware, `@noble/hashes` v2.2.0, pure JS):
 
-1. scrypt N=2¹⁷, r=8, p=1 — OWASP high. Preferred.
-2. scrypt N=2¹⁶, r=8, p=1 (~64 MB) — OWASP moderate. Document the deviation.
-3. Argon2id 19 MiB / t=3 — lower peak memory, may fare better in JS.
-4. PBKDF2-SHA256 ≥600k via native WebCrypto where available. **Last resort** —
-   not memory-hard, materially weaker against GPU/ASIC attackers. If chosen,
-   say so publicly rather than quietly.
+| Candidate | Time | Peak RSS delta |
+| --- | --- | --- |
+| scrypt N=2¹⁷, r=8, p=1 (OWASP high) | 1074 ms | **+132 MB** |
+| scrypt N=2¹⁶, r=8, p=1 (OWASP moderate) | 537 ms | +67 MB |
+| **Argon2id m=19 MiB, t=2, p=1 (OWASP min)** | **830 ms** | **+23 MB** |
+| Argon2id m=19 MiB, t=3, p=1 | 982 ms | +23 MB |
+| PBKDF2-SHA256 c=600k | 980 ms | +4 MB |
 
-Do not pick from this list by intuition. Pick by measurement (§8, Gate 1).
+**Decision: Argon2id m=19 MiB, t=2, p=1.** It costs 5.7× less memory than
+scrypt at OWASP's recommended parameters for comparable time, and it is OWASP's
+*first-choice* algorithm rather than its fallback. The earlier draft of this
+plan ranked scrypt first only to mirror Obsidian — imitation, not reasoning. The
+23 MB peak removes most of the OOM risk that made this the plan's pivot point.
+
+Remaining fallback ladder if on-device measurement disappoints:
+
+1. Argon2id 19 MiB / t=2 — **chosen default**.
+2. Argon2id 19 MiB / t=1 — halve time, keep memory hardness.
+3. scrypt N=2¹⁶ — only if an Argon2 implementation issue emerges.
+4. PBKDF2-SHA256 ≥600k via native WebCrypto. **Last resort** — not memory-hard,
+   materially weaker against GPU/ASIC attackers. If chosen, say so publicly
+   rather than quietly.
+
+Server-class numbers are an optimistic floor; Hermes will be slower. The gate in
+§8 still requires physical-device measurement before sign-off.
 
 ### 3.3 Envelope format — `BDGR1`
 
@@ -144,18 +162,17 @@ offset  size  field
 ------  ----  --------------------------------------------------
      0     4  magic          "BDGR"
      4     1  version        0x01
-     5     1  suite          0x01 = scrypt+HKDF-SHA256+AES-256-GCM
-     6     1  scryptLogN
-     7     1  scryptR
-     8     1  scryptP
-     9    16  vaultId        random 128-bit, not user-derived
-    25    16  kdfSalt
-    41    12  wrapNonce
-    53    48  wrappedDataKey (32 ct + 16 tag)
-   101     8  seq            u64 big-endian, strictly monotonic
-   109    12  payloadNonce
+     5     1  suite          0x01 = argon2id+HKDF-SHA256+AES-256-GCM
+                             0x02 = scrypt+HKDF-SHA256+AES-256-GCM
+     6     6  kdfParams      suite-specific; argon2id = m u32be, t u8, p u8
+    12    16  vaultId        random 128-bit, not user-derived
+    28    16  kdfSalt
+    44    12  wrapNonce
+    56    48  wrappedDataKey (32 ct + 16 tag)
+   104     8  seq            u64 big-endian, strictly monotonic
+   112    12  payloadNonce
 ------  ----  --------------------------------------------------
-            121 bytes total
+            124 bytes total
 ```
 
 Payload:
