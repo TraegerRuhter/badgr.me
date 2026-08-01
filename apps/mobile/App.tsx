@@ -52,6 +52,7 @@ import {
 } from "react-native";
 
 import { nagCopyGenerator } from "./src/copy/nagAi";
+import { VaultPanel } from "./src/sections/VaultPanel";
 import { runSync, syncEnabled } from "./src/sync/supabase";
 import {
   adjustTaskFireAt,
@@ -1492,6 +1493,14 @@ const TROUBLESHOOTING: readonly { q: string; a: string }[] = [
     q: "Nothing is syncing between devices",
     a: "Sync needs a configured Supabase project (see the repo's supabase/README) and the Pause switch off on every device. When two devices disagree, the most recent edit wins.",
   },
+  {
+    q: "\"Rolled-back data refused\" — what happened?",
+    a: "A snapshot arrived that was older than one this device already accepted. That is not a normal conflict: normal edits always move forward. Either an old file got imported by mistake, which is harmless, or something is serving you stale copies of your own data on purpose. The app refuses either way and never merges it. If the file came from a storage provider rather than your own hands, stop trusting that provider until you can explain it.",
+  },
+  {
+    q: "Can I lose my snapshots?",
+    a: "Yes, in one way: forget the passphrase and they are gone. There is no reset, no recovery email, and no support route — the whole point is that nobody else, this app included, holds a key. The tasks on this phone are unaffected; it's the encrypted files that become unreadable.",
+  },
 ];
 
 function TroubleshootItem({ q, a }: { q: string; a: string }) {
@@ -1735,6 +1744,13 @@ function SettingsSheet({
               onChange={(paused) => onChange({ ...settings, sync: { paused } })}
             />
           </View>
+
+          <View style={styles.groupLabelRow}>
+            <Icon name="lock" size={15} color={colors.textSecondary} />
+            <Text style={styles.groupLabel}>ENCRYPTED SNAPSHOTS</Text>
+          </View>
+
+          <VaultPanel />
 
           <Pressable
             style={({ pressed }) => [styles.resetBtn, pressed && styles.resetBtnPressed]}

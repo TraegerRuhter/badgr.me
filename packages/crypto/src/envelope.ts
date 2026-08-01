@@ -3,8 +3,14 @@ import type { Task } from "@alarmed/core";
 import { gunzipSync, gzipSync } from "fflate";
 import { canonicalNdjson, parseNdjson } from "./canonical";
 import { frame, unframe } from "./framing";
+import type { Aead } from "./aead";
 import { deriveKek, deriveMasterKey, unwrapDataKey, wrapDataKey } from "./keys";
-import { webCryptoRandom, type RandomSource } from "./random";
+import {
+  webCryptoRandom,
+  webCryptoRandomAsync,
+  type AsyncRandomSource,
+  type RandomSource,
+} from "./random";
 import {
   DEFAULT_KDF,
   FORMAT_VERSION,
@@ -21,15 +27,44 @@ import {
   type KdfParams,
 } from "./suite";
 
-/** Everything needed to seal or open, once the passphrase has been spent. */
-export interface VaultKeys {
+/**
+ * The non-secret half of a vault: everything needed to rebuild a header, and
+ * nothing an attacker gains anything from. Safe to persist in ordinary app
+ * storage — it is exactly what already sits in the cleartext header of every
+ * blob you have written.
+ *
+ * Split out from `VaultKeys` so the web path can carry vault identity around
+ * beside a non-extractable `CryptoKey`, which has no raw bytes to put in a
+ * `dataKey` field (build plan §6.2).
+ */
+export interface VaultRecord {
   readonly vaultId: Uint8Array;
   readonly kdfSalt: Uint8Array;
   readonly kdf: KdfParams;
   readonly wrapNonce: Uint8Array;
   readonly wrappedDataKey: Uint8Array;
+}
+
+/** Everything needed to seal or open, once the passphrase has been spent. */
+export interface VaultKeys extends VaultRecord {
   /** Cache this in the OS keystore; never write it to ordinary app storage. */
   readonly dataKey: Uint8Array;
+}
+
+/** Drops the secret, leaving what is safe to persist unencrypted. */
+export function toVaultRecord(vault: VaultRecord): VaultRecord {
+  return {
+    vaultId: vault.vaultId,
+    kdfSalt: vault.kdfSalt,
+    kdf: vault.kdf,
+    wrapNonce: vault.wrapNonce,
+    wrappedDataKey: vault.wrappedDataKey,
+  };
+}
+
+/** Reads the vault's non-secret identity straight out of a blob's header. */
+export function vaultRecordOf(blob: Uint8Array): VaultRecord {
+  return toVaultRecord(decodeHeader(blob));
 }
 
 export interface EnvelopeHeader {
@@ -172,29 +207,68 @@ export function unlockVault(passphrase: string, blob: Uint8Array): VaultKeys {
  * vault; the caller owns that counter because only the caller knows what it has
  * already published. See build plan §4.2.
  */
+function headerFor(record: VaultRecord, seq: bigint, payloadNonce: Uint8Array): Uint8Array {
+  return encodeHeader({
+    version: FORMAT_VERSION,
+    kdf: record.kdf,
+    vaultId: record.vaultId,
+    kdfSalt: record.kdfSalt,
+    wrapNonce: record.wrapNonce,
+    wrappedDataKey: record.wrappedDataKey,
+    seq,
+    payloadNonce,
+  });
+}
+
+/**
+ * Compresses and pads the task list into the inner plaintext.
+ *
+ * mtime: 0 is required, not cosmetic. fflate defaults the gzip MTIME field to
+ * Date.now(), which would make sealing non-deterministic and stamp the seal
+ * time into the payload.
+ */
+function packPayload(tasks: readonly Task[]): Uint8Array {
+  return frame(gzipSync(new TextEncoder().encode(canonicalNdjson(tasks)), { mtime: 0 }));
+}
+
+function unpackPayload(inner: Uint8Array): Task[] {
+  return parseNdjson(new TextDecoder().decode(gunzipSync(unframe(inner))));
+}
+
 export function seal(
   vault: VaultKeys,
   tasks: readonly Task[],
   seq: bigint,
   random: RandomSource = webCryptoRandom
 ): Uint8Array {
-  const header = encodeHeader({
-    version: FORMAT_VERSION,
-    kdf: vault.kdf,
-    vaultId: vault.vaultId,
-    kdfSalt: vault.kdfSalt,
-    wrapNonce: vault.wrapNonce,
-    wrappedDataKey: vault.wrappedDataKey,
-    seq,
-    payloadNonce: random(NONCE_BYTES),
-  });
+  const header = headerFor(vault, seq, random(NONCE_BYTES));
   const payloadNonce = header.slice(OFF.payloadNonce, OFF.payloadNonce + NONCE_BYTES);
+  const ciphertext = gcm(vault.dataKey, payloadNonce, header).encrypt(packPayload(tasks));
 
-  // mtime: 0 is required, not cosmetic. fflate defaults the gzip MTIME field to
-  // Date.now(), which would make sealing non-deterministic and stamp the seal
-  // time into the payload.
-  const gz = gzipSync(new TextEncoder().encode(canonicalNdjson(tasks)), { mtime: 0 });
-  const ciphertext = gcm(vault.dataKey, payloadNonce, header).encrypt(frame(gz));
+  const out = new Uint8Array(header.length + ciphertext.length);
+  out.set(header, 0);
+  out.set(ciphertext, header.length);
+  return out;
+}
+
+/**
+ * `seal` over the AEAD seam, so the caller supplies the cipher rather than the
+ * key bytes (build plan §6.2).
+ *
+ * Identical output to `seal` for the same inputs — the web and mobile paths
+ * differ only in who holds the key, never in what lands on disk. Use this
+ * wherever the key may be a non-extractable WebCrypto handle.
+ */
+export async function sealWith(
+  record: VaultRecord,
+  aead: Aead,
+  tasks: readonly Task[],
+  seq: bigint,
+  random: AsyncRandomSource = webCryptoRandomAsync
+): Promise<Uint8Array> {
+  const header = headerFor(record, seq, await random(NONCE_BYTES));
+  const payloadNonce = header.slice(OFF.payloadNonce, OFF.payloadNonce + NONCE_BYTES);
+  const ciphertext = await aead.encrypt(payloadNonce, header, packPayload(tasks));
 
   const out = new Uint8Array(header.length + ciphertext.length);
   out.set(header, 0);
@@ -219,6 +293,23 @@ export function openEnvelope(vault: VaultKeys, blob: Uint8Array): OpenedEnvelope
   } catch {
     throw new Error("Envelope failed authentication: wrong key, or it was modified");
   }
-  const text = new TextDecoder().decode(gunzipSync(unframe(inner)));
-  return { tasks: parseNdjson(text), seq: h.seq };
+  return { tasks: unpackPayload(inner), seq: h.seq };
+}
+
+/**
+ * `openEnvelope` over the AEAD seam. Same all-or-nothing contract: any tamper
+ * anywhere throws, and no partial data is ever returned (I3).
+ */
+export async function openEnvelopeWith(aead: Aead, blob: Uint8Array): Promise<OpenedEnvelope> {
+  const h = decodeHeader(blob);
+  const header = blob.slice(0, HEADER_BYTES);
+  const ciphertext = blob.slice(HEADER_BYTES);
+
+  let inner: Uint8Array;
+  try {
+    inner = await aead.decrypt(h.payloadNonce, header, ciphertext);
+  } catch {
+    throw new Error("Envelope failed authentication: wrong key, or it was modified");
+  }
+  return { tasks: unpackPayload(inner), seq: h.seq };
 }
