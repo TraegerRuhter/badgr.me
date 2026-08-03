@@ -1,8 +1,9 @@
 # Build plan: reminder-editing parity with Due
 
-**Status:** spec frozen, nothing built. Derived from a 90-second screen
-recording of Due for iOS (§1). Section numbers here are referenced from code
-comments — cite them rather than restating the reasoning inline.
+**Status:** Phases 1–3 built and merged-ready (PR #38); Phase 4 is next and
+needs a go-ahead on its schema change. Derived from a 90-second screen recording
+of Due for iOS (§1). Section numbers here are referenced from code comments —
+cite them rather than restating the reasoning inline.
 
 The goal is **not** to clone Due. It is to import the handful of interaction
 patterns Due gets right (§2) into badgr's existing model, using badgr's own
@@ -258,19 +259,19 @@ Constraints on this module:
 
 Each gate is blocking. No phase starts until the prior gate is signed off.
 
-**Phase 1 — Derived-label engine.** `packages/core/src/describe.ts` per §5.
+**Phase 1 — Derived-label engine. DONE.** `packages/core/src/describe.ts` per §5.
 No UI, no schema change.
 *Gate: unit tests cover every duration boundary (59 s, 60 s, 90 min, 24 h) and
 every §3.3 preset string; `describeFireTimes` is proven to accept only real
 planner output.*
 
-**Phase 2 — Nag presets + past-due affordance.** Wire §3.3's preset list and
+**Phase 2 — Nag presets + past-due affordance. DONE.** Wire §3.3's preset list and
 §3.5's red/"Now" behaviour into the existing Edit sheet on both clients. Still
 no schema change — presets are just `(nagIntervalSeconds, nagMaxCount)` pairs.
 *Gate: identical label strings on web and mobile (U7), asserted by a shared
 test, not by eyeballing.*
 
-**Phase 3 — Progressive disclosure.** Restructure the Edit sheet into §3.2's
+**Phase 3 — Progressive disclosure. DONE.** Restructure the Edit sheet into §3.2's
 collapsed-by-default shape with a "More Options" expansion. Inline the date
 picker per §3.1.
 *Gate: every existing edit flow still reachable in the same or fewer taps —
@@ -304,12 +305,33 @@ Flow inventory taken before the restructure (the gate's "before"):
 Flows 2, 3 and 8 gain one tap (the More-options disclosure). Everything else is
 unchanged, and the default view drops from fourteen controls to six.
 
-**Phase 4 — Per-task snooze and lead time.** Adds `Task.snoozeSeconds`
-(nullable, null = fall back to the global setting) and `Task.leadTimeSeconds`.
-Lead time adds a *second* pre-scheduled notification per task.
+**Phase 4 — Pre-alarm lead time. NEXT — needs a go-ahead.** Adds
+`Task.leadTimeSeconds` (nullable). Per-task snooze is **deferred**: §9.3.2
+questions whether it earns a permanent sync-payload field given the global
+setting already exists and badgr is single-user. Don't bundle the two.
+
+Lead time adds a *second* pre-scheduled notification per task, so it is the
+first change that can push against the notification ceiling.
+
+Everything it touches, because missing any one of these ships a half-feature:
+
+| File | Change |
+| --- | --- |
+| `packages/core/src/types.ts` | `Task.leadTimeSeconds: number \| null` |
+| `packages/core/src/nag.ts` | `SchedulableTask.leadTimeSeconds`; reserve its slot in `allocateNotificationBudget` |
+| `packages/core/src/notifications.ts` | Pre-alarm id (the current scheme is `nag:{taskId}:{index}` and assumes a non-negative index) and its own copy |
+| `apps/mobile/src/db/database.ts` | Migration v3 — plain `ALTER TABLE`, same shape as v1's `snooze_count` |
+| `apps/web/src/db/database.ts` | `normalizeStoredTask` backfill |
+| `packages/supabase` | Row mapping — **miss this and sync silently drops the field** |
+| Both editors | The §3.6 Lead Time control |
+
 *Gate: `allocateNotificationBudget` accounts for pre-alarms and a test proves
 the 60-slot ceiling holds with every task carrying a lead time (U6). Sync
-round-trips both fields through `reconcileTasks` unchanged.*
+round-trips the field through `reconcileTasks` unchanged.*
+
+Design note settled in advance: schedule the **burst before the pre-alarm** when
+budget is tight. If only one slot is left, the notification at the actual fire
+time is worth more than the heads-up before it.
 
 **Phase 5 — Intra-day recurrence (badgr's DayMinder).** §3.4. New fields for
 interval, and a count-or-duration cap. AutoComplete semantics are the hard part:

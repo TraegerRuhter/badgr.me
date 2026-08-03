@@ -7,12 +7,36 @@ build plan for whichever workstream you've been asked to pick up.
 
 | Workstream | Plan | State |
 | --- | --- | --- |
-| Encrypted portable sync | `docs/plans/portable-sync-build-plan.md` | Phases 1–3 built; Phase 3's gate needs physical devices |
-| Reminder-editing parity with Due | `docs/plans/due-parity-build-plan.md` | Spec frozen, **nothing built** |
+| Encrypted portable sync | `docs/plans/portable-sync-build-plan.md` | Phases 1–3 built and **merged** (#35, #36); Phase 3's gate needs physical devices |
+| Reminder-editing parity with Due | `docs/plans/due-parity-build-plan.md` | Phases 1–3 built, **PR #38 open and green**; Phase 4 needs a go-ahead |
 
-Everything below this line is the encrypted-sync workstream. For the Due-parity
-work, go straight to its plan — it is self-contained, and its §1 explains how to
-regenerate the reference frames.
+### Picking up the Due-parity work
+
+Go straight to its plan — it is self-contained, and its §1 explains how to
+regenerate the reference frames from the recording on branch `Vid`.
+
+Phases 1–3 are done: the derived-label engine (`packages/core/src/describe.ts`),
+nag presets with live fire-time previews, and progressive disclosure in both
+editors. **Phase 4 is specified down to the file list but deliberately not
+started** — it is the first schema change in this workstream, and half of what
+the plan originally bundled into it (per-task snooze) is still an open question
+in §9.3.2. Get a decision before writing the migration.
+
+Two things to know before touching this:
+
+- **`scripts/shots.mjs`** renders the web PWA at phone size with seeded fixtures
+  and a frozen clock. Build *without* `CI=true` first. It is how the screenshots
+  in the PR were produced, and the fastest way to see a change.
+- **The mobile UI cannot be rendered here.** `expo export --platform web` gets
+  as far as bundling — it needs `wasm` added to `config.resolver.assetExts` in
+  `apps/mobile/metro.config.js` — but `expo-sqlite`'s web worker never creates
+  the schema, so the app boots to an empty list and the editor is unreachable.
+  Mobile parity currently rests on typecheck plus the shared-source guard in
+  `apps/web/src/labelParity.test.ts`, not on anyone having looked at it.
+
+### Encrypted portable sync
+
+Everything below this line is the encrypted-sync workstream.
 
 ---
 
