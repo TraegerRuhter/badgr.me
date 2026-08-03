@@ -17,10 +17,17 @@ regenerate the reference frames from the recording on branch `Vid`.
 
 Phases 1–3 are done: the derived-label engine (`packages/core/src/describe.ts`),
 nag presets with live fire-time previews, and progressive disclosure in both
-editors. **Phase 4 is specified down to the file list but deliberately not
-started** — it is the first schema change in this workstream, and half of what
-the plan originally bundled into it (per-task snooze) is still an open question
-in §9.3.2. Get a decision before writing the migration.
+editors.
+
+**Phase 4 is written but blocked, and the blocker is bigger than Phase 4.**
+Adding *any* field to `Task` collides with the BDGR1 encrypted format:
+`canonical.ts` uses a fixed key list and `parseNdjson` rejects a row missing any
+of them, so adding a key makes existing vaults unreadable while omitting it
+makes encrypted file sync silently disagree with Supabase sync. The two
+workstreams in this table are not as independent as they look. The full analysis
+and three candidate fixes are in the Due-parity plan's Phase 4 section; the
+implementation is stashed on the branch (`git stash list`) pending that
+decision.
 
 Two things to know before touching this:
 

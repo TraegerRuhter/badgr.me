@@ -333,6 +333,52 @@ Design note settled in advance: schedule the **burst before the pre-alarm** when
 budget is tight. If only one slot is left, the notification at the actual fire
 time is worth more than the heads-up before it.
 
+#### BLOCKER — any new `Task` field collides with the BDGR1 encrypted format
+
+Found by building Phase 4 to completion and running the suite. **This is not
+specific to lead time; it applies to every future field on `Task`,** so read it
+before planning Phases 5 or 6 too.
+
+`packages/crypto/src/canonical.ts` serialises a `Task` with a **fixed key list**
+that is part of the on-disk format, and `parseNdjson` throws
+`Missing field "<key>"` for anything absent. That produces a fork with no
+free option:
+
+| Choice | Consequence |
+| --- | --- |
+| Add the key to `TASK_KEYS` | **Every existing vault becomes unreadable** — old snapshots lack the field, so `parseNdjson` throws |
+| Leave it out | Encrypted file sync **silently drops** the field, while Supabase sync carries it — the two sync paths disagree |
+
+`canonical.ts` states the intended remedy in its own header ("adding a Task
+field means adding it here and bumping the format version"), and
+`docs/HANDOFF.md` is explicit that a failing `vectors.test.ts` means bumping
+`FORMAT_VERSION` and writing a migration rather than pasting new bytes.
+
+So Phase 4 needs a format decision first. Three candidates:
+
+1. **Bump `FORMAT_VERSION` to 2, teach `decodeHeader` to accept 1 and 2, and
+   backfill on read.** The documented path. Costs a version bump and a
+   migration, and regenerated vectors.
+2. **Make reads tolerant of trailing keys** — split `TASK_KEYS` into a required
+   v1 core plus later-added keys backfilled to `null` on read. No version bump,
+   old vaults stay readable, and new vaults still open in old clients (the extra
+   key rides along unused). Protobuf's approach. Still changes canonical bytes
+   for new writes, so vectors must be regenerated deliberately.
+3. **Freeze `Task` as the sync payload** and put UI-only fields somewhere that
+   isn't synced. Cheapest now, but pushes the problem into Phase 5.
+
+My read is (2), because it keeps old and new clients mutually readable and
+avoids a version bump that buys nothing here — but it touches persisted,
+encrypted user data and the repo has a written rule pointing at (1), so it is
+the owner's call, not an implementation detail.
+
+**The Phase 4 code itself is done and mechanical** — types, budget reservation,
+pre-alarm id and copy, the SQLite v3 migration, the web store, the Supabase row
+mapping and its SQL migration, and every fixture. It is stashed on the branch as
+`Phase 4 lead-time WIP — blocked on BDGR1 canonical format decision`
+(`git stash list`). Redoing it from scratch is ~20 minutes; the decision above is
+the only real work left.
+
 **Phase 5 — Intra-day recurrence (badgr's DayMinder).** §3.4. New fields for
 interval, and a count-or-duration cap. AutoComplete semantics are the hard part:
 "fire on a schedule" vs "fire when the previous one is completed" are different
