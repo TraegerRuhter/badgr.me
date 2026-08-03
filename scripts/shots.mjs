@@ -164,6 +164,28 @@ try {
     await overdue.first().click();
     await page.waitForTimeout(500);
     await shoot(page, "04-task-expanded", "expanded task panel");
+
+    const edit = page.getByText("Edit task", { exact: false });
+    if (await edit.count()) {
+      await edit.first().click();
+      await page.waitForTimeout(500);
+      await shoot(page, "05-editor-top", "editor — past-due state");
+
+      // The nag preset list sits below the fold; scroll the drawer itself.
+      const drawer = page.locator("aside.drawer");
+      await drawer.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      await page.waitForTimeout(400);
+      await shoot(page, "06-editor-presets", "nag presets + fire-time preview");
+
+      const customRow = page.getByRole("radio", { name: /Custom/ });
+      if (await customRow.count()) {
+        await customRow.first().click();
+        await page.waitForTimeout(300);
+        await drawer.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+        await page.waitForTimeout(300);
+        await shoot(page, "07-editor-custom", "custom nag controls");
+      }
+    }
   }
 
   if (errors.length) {
