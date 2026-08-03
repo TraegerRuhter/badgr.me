@@ -85,6 +85,14 @@ export const iconPaths = {
   clock: "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM12 8v4.5l3 2",
   /** Arrows collapsing inward — the shrink preset. */
   shrink: "M4 4l6.5 6.5M10.5 5.5v5h-5M20 20l-6.5-6.5M13.5 18.5v-5h5",
+  /** Padlock — the encrypted vault. */
+  lock: "M6.5 10.5h11v9.5h-11zM9 10.5V7.8a3 3 0 0 1 6 0v2.7M12 14.2v2.4",
+  /** Arrow leaving a tray — export a snapshot. */
+  share: "M12 15V3.5M8.5 7L12 3.5 15.5 7M4.5 13.5v6h15v-6",
+  /** Arrow dropping into a tray — import a snapshot. */
+  inbox: "M12 3.5V15M8.5 11.5L12 15l3.5-3.5M4.5 13.5v6h15v-6",
+  /** Triangle with a bang — a security event, not an ordinary error. */
+  warning: "M12 4.2L21 19.5H3L12 4.2zM12 10v4.2M12 17v.01",
 } as const;
 
 export type IconName = keyof typeof iconPaths;

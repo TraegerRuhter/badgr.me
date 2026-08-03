@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@alarmed/core": "workspace:*",
+    "@alarmed/crypto": "workspace:*",
+    "@alarmed/portable-sync": "workspace:*",
     "@alarmed/supabase": "workspace:*",
     "@alarmed/ui": "workspace:*",
     "react": "^19.2.6",

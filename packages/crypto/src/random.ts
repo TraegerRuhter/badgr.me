@@ -19,3 +19,21 @@ export const webCryptoRandom: RandomSource = (byteLength) => {
   c.getRandomValues(out);
   return out;
 };
+
+/**
+ * The async form of the same seam.
+ *
+ * React Native's CSPRNG (`expo-crypto.getRandomBytesAsync`) is asynchronous,
+ * and the async sealing path exists anyway for WebCrypto, so the two fit
+ * together rather than forcing a blocking shim. Prefer this on mobile:
+ * `getRandomBytes` (the sync sibling) can fall back to a weaker source on some
+ * platforms, and a weak nonce under AES-GCM fails silently and catastrophically.
+ */
+export type AsyncRandomSource = (byteLength: number) => Promise<Uint8Array>;
+
+/** Lifts a synchronous source into the async seam. */
+export function asAsyncRandom(source: RandomSource): AsyncRandomSource {
+  return async (byteLength) => source(byteLength);
+}
+
+export const webCryptoRandomAsync: AsyncRandomSource = asAsyncRandom(webCryptoRandom);

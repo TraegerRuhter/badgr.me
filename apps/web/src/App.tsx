@@ -52,6 +52,7 @@ import {
 } from "./db/database";
 import { loadCollapsed, saveCollapsed } from "./sections/store";
 import { loadSettings, saveSettings, SETTINGS_KEY } from "./settings/store";
+import { VaultPanel } from "./sections/VaultPanel";
 import { runSync, syncEnabled } from "./sync/supabase";
 import {
   overlayNextOccurrenceCopy,
@@ -1434,6 +1435,13 @@ function SettingsDrawer({ settings, onChange, onClose }: SettingsDrawerProps) {
           />
         </div>
 
+        <div className="setting-group-label">
+          <Icon name="lock" size={15} />
+          Encrypted snapshots
+        </div>
+
+        <VaultPanel />
+
         <button
           type="button"
           className="reset-btn"
@@ -1671,6 +1679,14 @@ const TROUBLESHOOTING: readonly { q: string; a: string }[] = [
   {
     q: "Nothing is syncing between devices",
     a: "Sync needs a configured Supabase project (see the repo's supabase/README) and the Pause switch off on every device. When two devices disagree, the most recent edit wins.",
+  },
+  {
+    q: "\"Rolled-back data refused\" — what happened?",
+    a: "A snapshot arrived that was older than one this device already accepted. That is not a normal conflict: normal edits always move forward. Either an old file got imported by mistake, which is harmless, or something is serving you stale copies of your own data on purpose. The app refuses either way and never merges it. If the file came from a storage provider rather than your own hands, stop trusting that provider until you can explain it.",
+  },
+  {
+    q: "Can I lose my snapshots?",
+    a: "Yes, in one way: forget the passphrase and they are gone. There is no reset, no recovery email, and no support route — the whole point is that nobody else, this app included, holds a key. The tasks in this browser are unaffected; it's the encrypted files that become unreadable.",
   },
 ];
 

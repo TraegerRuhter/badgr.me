@@ -1,7 +1,9 @@
 # Build plan: end-to-end encrypted sync (self-hosted + managed)
 
-**Status:** in progress. Phase 1 measured (§3.2) and Phase 2 landed as
-`packages/crypto`. Extends `docs/ideas/portable-sync.md`.
+**Status:** in progress. Phase 1 measured (§3.2), Phase 2 landed as
+`packages/crypto`, and Phase 3 landed as `packages/portable-sync` plus the
+share-sheet and download/upload wiring on both clients — its gate still needs
+physical-device sign-off. Extends `docs/ideas/portable-sync.md`.
 
 Two tiers, one client, one format:
 
@@ -398,8 +400,12 @@ hierarchy, canonical serialisation. No I/O, no platform APIs.
 *Gate: test vectors pass under both noble and WebCrypto; property tests green.*
 
 **Phase 3 — Offline file sync.** Share-sheet export/import wired to
-`reconcileTasks`. No network at all. Ships real user value alone.
+`reconcileTasks`. No network at all. Ships real user value alone. **Built**, in
+`packages/portable-sync`.
 *Gate: round-trip across web ↔ mobile on physical devices; rollback rejected.*
+*Rollback: done and tested, both directions. Round-trip: proven in tests across
+the noble and WebCrypto paths, still unverified on physical hardware — the gate
+is not signed off.*
 
 **Phase 4 — Storage adapters.** S3 and WebDAV against the §5 contract.
 *Gate: CAS conflicts verified against MinIO **and** real R2 — including a

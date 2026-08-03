@@ -1,0 +1,22 @@
+{
+  "name": "@alarmed/portable-sync",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "echo \"(no lint configured for portable-sync)\""
+  },
+  "dependencies": {
+    "@alarmed/core": "workspace:*",
+    "@alarmed/crypto": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.9"
+  }
+}
