@@ -935,6 +935,12 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
     () => matchNagPreset(task.nagIntervalSeconds, task.nagMaxCount) === null
   );
 
+  // Opens pre-expanded when there is already something behind it. Collapsing a
+  // note the user wrote would be a good way to lose it.
+  const [showMore, setShowMore] = useState(
+    () => (task.notes?.trim().length ?? 0) > 0 || isRepeatRule(task.repeatRule)
+  );
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -1029,26 +1035,6 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
           onChange={(event) => setTitle(event.target.value)}
         />
 
-        <label className="editor-label" htmlFor="edit-notes">
-          Notes
-        </label>
-        <textarea
-          id="edit-notes"
-          className="field editor-notes"
-          rows={3}
-          placeholder="Shown as the notification body (instead of the sass). Lines like &quot;- [ ] item&quot; become a checklist."
-          value={notes}
-          onChange={(event) => setNotes(event.target.value)}
-        />
-        <button
-          type="button"
-          className="checklist-add-btn"
-          onClick={() => setNotes((current) => appendChecklistItem(current))}
-        >
-          <Icon name="plus" size={13} />
-          Add checklist item
-        </button>
-
         <div className="setting-row">
           <p className="setting-name">Has a date</p>
           <Switch checked={dated} label="Has a date" onChange={setDated} />
@@ -1112,26 +1098,6 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
             +1 week
           </button>
         </div>
-            <div className="editor-label">Repeat</div>
-            <div className="when-row">
-              <button
-                type="button"
-                className={`when-chip${repeat === null ? " active" : ""}`}
-                onClick={() => setRepeat(null)}
-              >
-                Never
-              </button>
-              {REPEAT_RULES.map((rule) => (
-                <button
-                  key={rule}
-                  type="button"
-                  className={`when-chip${repeat === rule ? " active" : ""}`}
-                  onClick={() => setRepeat(rule)}
-                >
-                  {REPEAT_LABELS[rule]}
-                </button>
-              ))}
-            </div>
           </>
         )}
 
@@ -1233,6 +1199,71 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
           Fed from computeNagBurst, never from a parallel formatter — see U2.
         */}
         <p className={`fire-preview${pastDue ? " past-due" : ""}`}>{firePreview}</p>
+
+        {/*
+          Progressive disclosure (plan §3.2). Notes and Repeat live here rather
+          than the nag presets — badgr's premise is badgering, so hiding the nag
+          config would bury the one thing this app is for. Deliberate deviation
+          from Due, recorded in the plan's Phase 3 note.
+        */}
+        <button
+          type="button"
+          className="more-options"
+          aria-expanded={showMore}
+          onClick={() => setShowMore((open) => !open)}
+        >
+          <Icon name="chevron" size={14} />
+          {showMore ? "Fewer options" : "More options"}
+        </button>
+
+        {showMore ? (
+          <div className="more-panel">
+            <label className="editor-label" htmlFor="edit-notes">
+              Notes
+            </label>
+            <textarea
+              id="edit-notes"
+              className="field editor-notes"
+              rows={3}
+              placeholder="Shown as the notification body (instead of the sass). Lines like &quot;- [ ] item&quot; become a checklist."
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+            />
+            <button
+              type="button"
+              className="checklist-add-btn"
+              onClick={() => setNotes((current) => appendChecklistItem(current))}
+            >
+              <Icon name="plus" size={13} />
+              Add checklist item
+            </button>
+
+            {dated ? (
+              <>
+                <div className="editor-label">Repeat</div>
+                <div className="when-row">
+                  <button
+                    type="button"
+                    className={`when-chip${repeat === null ? " active" : ""}`}
+                    onClick={() => setRepeat(null)}
+                  >
+                    Never
+                  </button>
+                  {REPEAT_RULES.map((rule) => (
+                    <button
+                      key={rule}
+                      type="button"
+                      className={`when-chip${repeat === rule ? " active" : ""}`}
+                      onClick={() => setRepeat(rule)}
+                    >
+                      {REPEAT_LABELS[rule]}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="editor-actions">
           <button type="button" className="btn btn-quiet" onClick={onClose}>

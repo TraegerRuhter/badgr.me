@@ -184,6 +184,17 @@ try {
         await drawer.evaluate((el) => el.scrollTo(0, el.scrollHeight));
         await page.waitForTimeout(300);
         await shoot(page, "07-editor-custom", "custom nag controls");
+        await customRow.first().click();
+        await page.waitForTimeout(250);
+      }
+
+      const more = page.getByRole("button", { name: /More options/ });
+      if (await more.count()) {
+        await more.first().click();
+        await page.waitForTimeout(400);
+        await drawer.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+        await page.waitForTimeout(400);
+        await shoot(page, "08-editor-more", "notes + repeat behind disclosure");
       }
     }
   }

@@ -1359,3 +1359,42 @@
   background: var(--danger-soft);
   color: var(--danger);
 }
+
+/* ---------- progressive disclosure (due-parity plan §3.2) ---------- */
+
+.more-options {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 14px;
+  padding: 10px 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.more-options:hover {
+  background: var(--surface-raised);
+  border-color: var(--accent);
+}
+
+.more-options svg {
+  transition: transform 0.18s;
+}
+
+.more-options[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.more-panel {
+  display: flex;
+  flex-direction: column;
+  margin-top: 6px;
+}

@@ -789,6 +789,12 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
     () => matchNagPreset(task.nagIntervalSeconds, task.nagMaxCount) === null
   );
 
+  // Pre-expanded when something already lives behind it — collapsing a note
+  // the user wrote is a good way to lose it.
+  const [showMore, setShowMore] = useState(
+    () => (task.notes?.trim().length ?? 0) > 0 || isRepeatRule(task.repeatRule)
+  );
+
   const intervals = INTERVAL_CHOICES.some((c) => c.seconds === intervalSeconds)
     ? INTERVAL_CHOICES
     : [
@@ -835,25 +841,6 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
             onChangeText={setTitle}
             placeholderTextColor={colors.textSecondary}
           />
-
-          <Text style={styles.editorLabel}>NOTES</Text>
-          <TextInput
-            style={[styles.input, styles.editorNotes]}
-            value={notes}
-            onChangeText={setNotes}
-            placeholder={
-              'Shown as the notification body (instead of the sass). Lines like "- [ ] item" become a checklist.'
-            }
-            placeholderTextColor={colors.textSecondary}
-            multiline
-          />
-          <Pressable
-            style={styles.checklistAddBtn}
-            onPress={() => setNotes((current) => appendChecklistItem(current))}
-          >
-            <Icon name="plus" size={13} color={colors.textSecondary} />
-            <Text style={styles.checklistAddBtnText}>Add checklist item</Text>
-          </Pressable>
 
           <View style={styles.settingRow}>
             <Text style={styles.settingName}>Has a date</Text>
@@ -914,38 +901,6 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
                 </Pressable>
               </View>
 
-              <Text style={styles.editorLabel}>REPEAT</Text>
-              <View style={styles.whenRow}>
-                <Pressable
-                  style={[styles.whenChip, repeat === null && styles.whenChipActive]}
-                  onPress={() => setRepeat(null)}
-                >
-                  <Text
-                    style={[
-                      styles.whenChipText,
-                      repeat === null && styles.whenChipTextActive,
-                    ]}
-                  >
-                    Never
-                  </Text>
-                </Pressable>
-                {REPEAT_RULES.map((rule) => (
-                  <Pressable
-                    key={rule}
-                    style={[styles.whenChip, repeat === rule && styles.whenChipActive]}
-                    onPress={() => setRepeat(rule)}
-                  >
-                    <Text
-                      style={[
-                        styles.whenChipText,
-                        repeat === rule && styles.whenChipTextActive,
-                      ]}
-                    >
-                      {REPEAT_LABELS[rule]}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
             </>
           )}
 
@@ -1063,6 +1018,83 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
           <Text style={[styles.firePreview, pastDue && styles.firePreviewPastDue]}>
             {firePreview}
           </Text>
+
+          {/*
+            Progressive disclosure (plan §3.2). Notes and Repeat sit here, not
+            the nag presets — badgr exists to badger, so burying the nag config
+            would hide the point of the app. Deviation from Due is recorded in
+            the plan's Phase 3 note.
+          */}
+          <Pressable
+            style={styles.moreOptions}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: showMore }}
+            onPress={() => setShowMore((open) => !open)}
+          >
+            <Icon name="chevron" size={14} color={colors.accent} />
+            <Text style={styles.moreOptionsText}>
+              {showMore ? "Fewer options" : "More options"}
+            </Text>
+          </Pressable>
+
+          {showMore ? (
+            <View>
+            <Text style={styles.editorLabel}>NOTES</Text>
+            <TextInput
+              style={[styles.input, styles.editorNotes]}
+              value={notes}
+              onChangeText={setNotes}
+              placeholder={
+                'Shown as the notification body (instead of the sass). Lines like "- [ ] item" become a checklist.'
+              }
+              placeholderTextColor={colors.textSecondary}
+              multiline
+            />
+            <Pressable
+              style={styles.checklistAddBtn}
+              onPress={() => setNotes((current) => appendChecklistItem(current))}
+            >
+              <Icon name="plus" size={13} color={colors.textSecondary} />
+              <Text style={styles.checklistAddBtnText}>Add checklist item</Text>
+            </Pressable>
+              {dated ? (
+                <>
+                <Text style={styles.editorLabel}>REPEAT</Text>
+                <View style={styles.whenRow}>
+                  <Pressable
+                    style={[styles.whenChip, repeat === null && styles.whenChipActive]}
+                    onPress={() => setRepeat(null)}
+                  >
+                    <Text
+                      style={[
+                        styles.whenChipText,
+                        repeat === null && styles.whenChipTextActive,
+                      ]}
+                    >
+                      Never
+                    </Text>
+                  </Pressable>
+                  {REPEAT_RULES.map((rule) => (
+                    <Pressable
+                      key={rule}
+                      style={[styles.whenChip, repeat === rule && styles.whenChipActive]}
+                      onPress={() => setRepeat(rule)}
+                    >
+                      <Text
+                        style={[
+                          styles.whenChipText,
+                          repeat === rule && styles.whenChipTextActive,
+                        ]}
+                      >
+                        {REPEAT_LABELS[rule]}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                </>
+              ) : null}
+            </View>
+          ) : null}
 
           <View style={styles.editorActions}>
             <ActionButton icon="close" label="Cancel" tone="quiet" onPress={onClose} />
@@ -2007,6 +2039,23 @@ const styles = StyleSheet.create({
   editorNotes: {
     minHeight: 64,
     textAlignVertical: "top",
+  },
+  moreOptions: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginHorizontal: spacing.md,
+    marginTop: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+  },
+  moreOptionsText: {
+    ...typography.caption,
+    color: colors.accent,
+    fontWeight: "700",
   },
   nagPresetList: {
     borderWidth: 1,

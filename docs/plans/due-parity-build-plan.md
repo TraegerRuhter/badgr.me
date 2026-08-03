@@ -276,6 +276,34 @@ picker per §3.1.
 *Gate: every existing edit flow still reachable in the same or fewer taps —
 enumerate them before starting, verify after.*
 
+**Deliberate deviation from Due.** Due puts Nag-Me behind More Options, because
+Due is a general reminder app where nagging is one feature among many. badgr's
+entire premise is badgering, so the nag presets stay on the top level and Notes
+and Repeat move behind the disclosure instead. §0 says import the patterns, not
+the layout; this is that distinction in practice.
+
+Flow inventory taken before the restructure (the gate's "before"):
+
+| # | Flow | Taps from editor open, before |
+| --- | --- | --- |
+| 1 | Edit title | 0 (focus and type) |
+| 2 | Edit notes | 0 |
+| 3 | Add checklist item | 1 |
+| 4 | Toggle has-a-date | 1 |
+| 5 | Set exact date/time | 1 (native picker) |
+| 6 | Time-of-day chip (07:00/12:00/17:00/21:00) | 1 |
+| 7 | Today / +1 day / +1 week | 1 |
+| 8 | Set repeat cadence | 1 |
+| 9 | Pick a nag preset | 1 |
+| 10 | Custom interval | 2 (Custom, then chip) |
+| 11 | Custom count | 2 (Custom, then stepper) |
+| 12 | Until-marked-done | 2 |
+| 13 | Shrink intervals | 2 |
+| 14 | Save / Cancel | 1 |
+
+Flows 2, 3 and 8 gain one tap (the More-options disclosure). Everything else is
+unchanged, and the default view drops from fourteen controls to six.
+
 **Phase 4 — Per-task snooze and lead time.** Adds `Task.snoozeSeconds`
 (nullable, null = fall back to the global setting) and `Task.leadTimeSeconds`.
 Lead time adds a *second* pre-scheduled notification per task.
