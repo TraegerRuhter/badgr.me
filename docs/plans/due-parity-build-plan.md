@@ -330,23 +330,61 @@ or visibly absent — no half-working state.*
 
 ---
 
-## 9. Open decisions
+## 9. Decisions
 
-1. **What "Nag off" means in badgr.** Due has both "Default (Off)" and
-   "Nag-Me Off". badgr has `dismissedAt` (pause, PowerCircle) and
-   `escalationMode`. These are three overlapping concepts and shipping all
-   three would be incoherent. **Decide before Phase 2.**
-2. **Duration formatting rule.** Due prints "(90 min)" for 15 min × 6 but
-   "(3 hours)" for 30 min × 6 — so it switches to hours only on a whole-hour
-   boundary. Confirm from the frames and pin it, or pick badgr's own rule and
-   pin that. Either is fine; ambiguity is not.
-3. **Name for intra-day recurrence.** "DayMinder" is Due's. Candidates: Rounds,
+### 9.1 What "nag off" means — RESOLVED
+
+Three concepts already overlap (`dismissedAt`, `escalationMode`, and the nag
+fields). Shipping a fourth would be incoherent, so each gets exactly one job:
+
+| Concept | Meaning | Field |
+| --- | --- | --- |
+| **PowerCircle / pause** | Mute this task entirely — no alert at all | `dismissedAt` (exists, already in UI) |
+| **Nag preset** | How insistently it repeats *after* the first fire | `nagIntervalSeconds` + `nagMaxCount` |
+| **Escalation** | Whether the interval tightens as you ignore it | `escalationMode` (orthogonal) |
+
+**badgr's equivalent of "Nag-Me Off" is a "Just once" preset —
+`nagMaxCount: 1`.** The task still alerts you once; it just doesn't badger.
+That is the right semantic for this app specifically: badgr's whole premise is
+badgering, so "off" must not mean "silent". Silent is what the PowerCircle is
+for, and it already exists.
+
+Consequence: **no schema change, and no new "off" state.** The preset list is
+purely a set of `(nagIntervalSeconds, nagMaxCount)` pairs.
+
+### 9.2 Duration formatting — RESOLVED
+
+Confirmed from the frames at full resolution: **Due contradicts itself.**
+
+| Source | 30 min | 90 min | 180 min | 220 min | 360 min |
+| --- | --- | --- | --- | --- | --- |
+| Preset subtitles (§3.3) | "30 min" | "90 min" | "3 hours" | — | "6 hours" |
+| Custom subtitle (§3.3) | — | — | — | "3 hr, 40 min" | — |
+
+The custom formatter switches to hours at 60 min and abbreviates ("1 hr",
+"2 hr", "4 hr"); the preset formatter holds minutes to at least 90 and spells
+out "hours". The same 90-minute duration would render two different ways
+depending on which screen you're looking at.
+
+**badgr uses one formatter everywhere:**
+
+- Below 60 minutes → `"9 min"`, `"30 min"`
+- 60 minutes and above → `"1 hr"`, `"2 hr"`, `"3 hr, 40 min"`, `"4 hr"`
+- Exact hours omit the minutes component entirely
+- Abbreviated (`hr` / `min`), comma-joined
+
+This is Due's custom-formatter rule, which is the internally consistent of the
+two. One function, `formatDuration`, and §7's boundary tests pin it.
+
+### 9.3 Still open
+
+1. **Name for intra-day recurrence.** "DayMinder" is Due's. Candidates: Rounds,
    Loop, Burst (already means something in `computeNagBurst` — avoid). Needs a
    name before Phase 5 writes it into the schema.
-4. **Whether per-task snooze is worth the schema change**, given the global
+2. **Whether per-task snooze is worth the schema change**, given the global
    setting already exists and badgr is single-user. Cheap to add, but it is
    one more field on every sync payload.
-5. **Melody/Sound/Alert Message** are listed in §3.2 but excluded from §0.
+3. **Melody/Sound/Alert Message** are listed in §3.2 but excluded from §0.
    Revisit only if per-task sound becomes a real request.
 
 ---
