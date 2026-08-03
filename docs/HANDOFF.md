@@ -1,7 +1,18 @@
-# Handoff: encrypted portable sync
+# Handoff
 
 Written for a fresh session with no prior context. Read this first, then the
-build plan. Should take about two minutes.
+build plan for whichever workstream you've been asked to pick up.
+
+**Two active workstreams, independent of each other:**
+
+| Workstream | Plan | State |
+| --- | --- | --- |
+| Encrypted portable sync | `docs/plans/portable-sync-build-plan.md` | Phases 1–3 built; Phase 3's gate needs physical devices |
+| Reminder-editing parity with Due | `docs/plans/due-parity-build-plan.md` | Spec frozen, **nothing built** |
+
+Everything below this line is the encrypted-sync workstream. For the Due-parity
+work, go straight to its plan — it is self-contained, and its §1 explains how to
+regenerate the reference frames.
 
 ---
 
