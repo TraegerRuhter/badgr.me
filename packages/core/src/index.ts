@@ -1,6 +1,7 @@
 export * from "./types";
 export * from "./nag";
 export * from "./copy";
+export * from "./describe";
 export * from "./remoteCopy";
 export * from "./snooze";
 export * from "./notifications";

@@ -2,9 +2,17 @@ import {
   ADJUST_STEPS,
   appendChecklistItem,
   atTimeOfDay,
+  computeNagBurst,
   DEFAULT_SETTINGS,
+  describeFireTimes,
+  describeNagPlan,
+  describeNagPreset,
+  describeRelativeFireTime,
   groupTasksIntoSections,
+  isPastDue,
   isRepeatRule,
+  matchNagPreset,
+  NAG_PRESETS,
   NAG_PACK_LABELS,
   NAG_PACKS,
   NAG_TONES,
@@ -25,6 +33,7 @@ import {
   WHEN_CHOICES,
   type AppSettings,
   type EscalationMode,
+  type NagPreset,
   type NagTone,
   type RepeatRule,
   type Task,
@@ -779,10 +788,15 @@ const TaskCard = memo(function TaskCard({
             <span>No date — tap to add one</span>
           ) : (
             <>
+              {/* Derived labels (plan §5) — one phrasing, shared with mobile (U7). */}
               <span className={ageLabel ? "meta-overdue" : undefined}>
-                Fires {formatDateTime(task.fireAt)}
-                {ageLabel ? ` ${ageLabel}` : ""} · every{" "}
-                {formatInterval(task.nagIntervalSeconds)}
+                {formatDateTime(task.fireAt)} ·{" "}
+                {describeRelativeFireTime(task.fireAt)} ·{" "}
+                {describeNagPlan({
+                  intervalSeconds: task.nagIntervalSeconds,
+                  maxCount: task.nagMaxCount,
+                  escalationMode: task.escalationMode,
+                })}
               </span>
               {isRepeatRule(task.repeatRule) ? (
                 <span className="repeat-badge">
@@ -907,10 +921,24 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
     toLocalInputValue(task.fireAt ? new Date(task.fireAt) : quickFireAt("hour"))
   );
   const [intervalSeconds, setIntervalSeconds] = useState(task.nagIntervalSeconds);
-  const [maxCount, setMaxCount] = useState(task.nagMaxCount ?? 6);
+  const [maxCount, setMaxCount] = useState<number | null>(task.nagMaxCount);
   const [shrink, setShrink] = useState(task.escalationMode === "shrink");
   const [repeat, setRepeat] = useState<RepeatRule | null>(
     isRepeatRule(task.repeatRule) ? task.repeatRule : null
+  );
+
+  // A task whose fields don't match any preset opens straight into Custom,
+  // rather than silently snapping to the nearest preset and changing its
+  // schedule behind the user's back.
+  const activePreset: NagPreset | null = matchNagPreset(intervalSeconds, maxCount);
+  const [custom, setCustom] = useState(
+    () => matchNagPreset(task.nagIntervalSeconds, task.nagMaxCount) === null
+  );
+
+  // Opens pre-expanded when there is already something behind it. Collapsing a
+  // note the user wrote would be a good way to lose it.
+  const [showMore, setShowMore] = useState(
+    () => (task.notes?.trim().length ?? 0) > 0 || isRepeatRule(task.repeatRule)
   );
 
   useEffect(() => {
@@ -934,6 +962,32 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
     setFireAt(toLocalInputValue(shift(base)));
   };
 
+  const parsedFireAt = dated ? new Date(fireAt) : null;
+  const validFireAt =
+    parsedFireAt && !Number.isNaN(parsedFireAt.getTime()) ? parsedFireAt : null;
+  const pastDue = isPastDue(validFireAt);
+  const fireAtMs = validFireAt?.getTime() ?? null;
+
+  /**
+   * The live "will fire at …" line (plan §3.4).
+   *
+   * Runs the real planner and formats its output — the whole point of
+   * invariant U2. A past-due time is previewed from now rather than from the
+   * stale instant, because that is what the scheduler will actually do.
+   */
+  const firePreview = useMemo(() => {
+    if (fireAtMs == null) return "Undated — nothing will fire.";
+    const at = new Date(fireAtMs);
+    const burst = computeNagBurst({
+      fireAt: pastDue ? new Date() : at,
+      nagIntervalSeconds: intervalSeconds,
+      nagMaxCount: maxCount,
+      escalationMode: shrink ? "shrink" : "none",
+    });
+    const when = pastDue ? `${describeRelativeFireTime(at)} — ` : "";
+    return `${when}${describeFireTimes(burst)}`;
+  }, [fireAtMs, pastDue, intervalSeconds, maxCount, shrink]);
+
   const save = () => {
     const parsed = new Date(fireAt);
     const nextFireAt = !dated
@@ -947,7 +1001,9 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
       fireAt: nextFireAt,
       nagIntervalSeconds: intervalSeconds,
       nagMaxCount: maxCount,
-      escalationMode: shrink ? "shrink" : "none",
+      // Shrink is meaningless with a single fire, so "Just once" (badgr's
+      // nag-off, plan §9.1) never persists a flag that can't apply.
+      escalationMode: shrink && maxCount !== 1 ? "shrink" : "none",
       // A repeat needs a date to repeat from — clearing the date clears it too.
       repeatRule: dated ? repeat : null,
     });
@@ -978,26 +1034,6 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
           value={title}
           onChange={(event) => setTitle(event.target.value)}
         />
-
-        <label className="editor-label" htmlFor="edit-notes">
-          Notes
-        </label>
-        <textarea
-          id="edit-notes"
-          className="field editor-notes"
-          rows={3}
-          placeholder="Shown as the notification body (instead of the sass). Lines like &quot;- [ ] item&quot; become a checklist."
-          value={notes}
-          onChange={(event) => setNotes(event.target.value)}
-        />
-        <button
-          type="button"
-          className="checklist-add-btn"
-          onClick={() => setNotes((current) => appendChecklistItem(current))}
-        >
-          <Icon name="plus" size={13} />
-          Add checklist item
-        </button>
 
         <div className="setting-row">
           <p className="setting-name">Has a date</p>
@@ -1040,7 +1076,8 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
               })
             }
           >
-            Today
+            {/* Flips to "Now" once the chosen time is in the past (plan §3.5). */}
+            {pastDue ? "Now" : "Today"}
           </button>
           <button
             type="button"
@@ -1061,64 +1098,172 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
             +1 week
           </button>
         </div>
-            <div className="editor-label">Repeat</div>
-            <div className="when-row">
-              <button
-                type="button"
-                className={`when-chip${repeat === null ? " active" : ""}`}
-                onClick={() => setRepeat(null)}
-              >
-                Never
-              </button>
-              {REPEAT_RULES.map((rule) => (
-                <button
-                  key={rule}
-                  type="button"
-                  className={`when-chip${repeat === rule ? " active" : ""}`}
-                  onClick={() => setRepeat(rule)}
-                >
-                  {REPEAT_LABELS[rule]}
-                </button>
-              ))}
-            </div>
           </>
         )}
 
-        <div className="editor-label">Nag every</div>
-        <div className="when-row">
-          {intervals.map((choice) => (
+        <div className="editor-label">Nagging</div>
+        <div className="preset-list" role="radiogroup" aria-label="Nagging">
+          {NAG_PRESETS.map((preset) => {
+            const active = !custom && activePreset?.id === preset.id;
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                className={`preset-row${active ? " active" : ""}`}
+                onClick={() => {
+                  setCustom(false);
+                  setIntervalSeconds(preset.intervalSeconds);
+                  setMaxCount(preset.maxCount);
+                }}
+              >
+                <span className="preset-name">{preset.label}</span>
+                <span className="preset-sub">{describeNagPreset(preset)}</span>
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            role="radio"
+            aria-checked={custom}
+            className={`preset-row${custom ? " active" : ""}`}
+            onClick={() => setCustom(true)}
+          >
+            <span className="preset-name">Custom</span>
+            <span className="preset-sub">
+              {describeNagPlan({
+                intervalSeconds,
+                maxCount,
+                escalationMode: shrink ? "shrink" : "none",
+              })}
+            </span>
+          </button>
+        </div>
+
+        {custom ? (
+          <div className="preset-custom">
+            <div className="when-row">
+              {intervals.map((choice) => (
+                <button
+                  key={choice.seconds}
+                  type="button"
+                  className={`when-chip${intervalSeconds === choice.seconds ? " active" : ""}`}
+                  onClick={() => setIntervalSeconds(choice.seconds)}
+                >
+                  {choice.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="setting-row">
+              <div>
+                <p className="setting-name">Times</p>
+                <p className="setting-desc">
+                  Lifetime cap — or turn it off to nag until done.
+                </p>
+              </div>
+              <Stepper
+                value={maxCount ?? 20}
+                min={1}
+                max={20}
+                label="nag count"
+                onChange={setMaxCount}
+              />
+            </div>
+
+            <div className="setting-row">
+              <div>
+                <p className="setting-name">Until marked done</p>
+                <p className="setting-desc">Ignore the cap and keep going.</p>
+              </div>
+              <Switch
+                checked={maxCount == null}
+                label="Nag until marked done"
+                onChange={(on) => setMaxCount(on ? null : 6)}
+              />
+            </div>
+
+            <div className="setting-row">
+              <div>
+                <p className="setting-name">Shrink intervals</p>
+                <p className="setting-desc">Each nag lands sooner than the last.</p>
+              </div>
+              <Switch checked={shrink} label="Shrink intervals" onChange={setShrink} />
+            </div>
+          </div>
+        ) : null}
+
+        {/*
+          The consequence, in actual clock times (plan §3.4, invariant U1).
+          Fed from computeNagBurst, never from a parallel formatter — see U2.
+        */}
+        <p className={`fire-preview${pastDue ? " past-due" : ""}`}>{firePreview}</p>
+
+        {/*
+          Progressive disclosure (plan §3.2). Notes and Repeat live here rather
+          than the nag presets — badgr's premise is badgering, so hiding the nag
+          config would bury the one thing this app is for. Deliberate deviation
+          from Due, recorded in the plan's Phase 3 note.
+        */}
+        <button
+          type="button"
+          className="more-options"
+          aria-expanded={showMore}
+          onClick={() => setShowMore((open) => !open)}
+        >
+          <Icon name="chevron" size={14} />
+          {showMore ? "Fewer options" : "More options"}
+        </button>
+
+        {showMore ? (
+          <div className="more-panel">
+            <label className="editor-label" htmlFor="edit-notes">
+              Notes
+            </label>
+            <textarea
+              id="edit-notes"
+              className="field editor-notes"
+              rows={3}
+              placeholder="Shown as the notification body (instead of the sass). Lines like &quot;- [ ] item&quot; become a checklist."
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+            />
             <button
-              key={choice.seconds}
               type="button"
-              className={`when-chip${intervalSeconds === choice.seconds ? " active" : ""}`}
-              onClick={() => setIntervalSeconds(choice.seconds)}
+              className="checklist-add-btn"
+              onClick={() => setNotes((current) => appendChecklistItem(current))}
             >
-              {choice.label}
+              <Icon name="plus" size={13} />
+              Add checklist item
             </button>
-          ))}
-        </div>
 
-        <div className="setting-row">
-          <div>
-            <p className="setting-name">Times</p>
-            <p className="setting-desc">Lifetime cap on this task's nags.</p>
+            {dated ? (
+              <>
+                <div className="editor-label">Repeat</div>
+                <div className="when-row">
+                  <button
+                    type="button"
+                    className={`when-chip${repeat === null ? " active" : ""}`}
+                    onClick={() => setRepeat(null)}
+                  >
+                    Never
+                  </button>
+                  {REPEAT_RULES.map((rule) => (
+                    <button
+                      key={rule}
+                      type="button"
+                      className={`when-chip${repeat === rule ? " active" : ""}`}
+                      onClick={() => setRepeat(rule)}
+                    >
+                      {REPEAT_LABELS[rule]}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : null}
           </div>
-          <Stepper
-            value={maxCount}
-            min={1}
-            max={20}
-            label="nag count"
-            onChange={setMaxCount}
-          />
-        </div>
-
-        <div className="setting-row">
-          <div>
-            <p className="setting-name">Shrink intervals</p>
-            <p className="setting-desc">Each nag lands sooner than the last.</p>
-          </div>
-          <Switch checked={shrink} label="Shrink intervals" onChange={setShrink} />
-        </div>
+        ) : null}
 
         <div className="editor-actions">
           <button type="button" className="btn btn-quiet" onClick={onClose}>

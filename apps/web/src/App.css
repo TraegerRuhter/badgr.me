@@ -1279,3 +1279,122 @@
   font-weight: 700;
   cursor: pointer;
 }
+
+/* ---------- nag presets (due-parity plan §3.3) ---------- */
+
+.preset-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.preset-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 11px 13px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.14s;
+}
+
+.preset-row:last-child {
+  border-bottom: none;
+}
+
+.preset-row:hover {
+  background: var(--surface-raised);
+}
+
+.preset-row.active {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.preset-name {
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.preset-row.active .preset-name {
+  color: var(--accent);
+}
+
+/* The derived subtitle — the whole point of the pattern (plan §8.1). */
+.preset-sub {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.preset-custom {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  padding-left: 11px;
+  border-left: 2px solid var(--border);
+}
+
+/*
+ * The enumerated fire-time preview. Deliberately prominent: it is the answer
+ * to "what will this actually do", and burying it would defeat invariant U1.
+ */
+.fire-preview {
+  margin: 12px 0 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--surface-raised);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.fire-preview.past-due {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* ---------- progressive disclosure (due-parity plan §3.2) ---------- */
+
+.more-options {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 14px;
+  padding: 10px 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.more-options:hover {
+  background: var(--surface-raised);
+  border-color: var(--accent);
+}
+
+.more-options svg {
+  transition: transform 0.18s;
+}
+
+.more-options[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.more-panel {
+  display: flex;
+  flex-direction: column;
+  margin-top: 6px;
+}

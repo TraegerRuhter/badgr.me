@@ -19,6 +19,14 @@ import {
   swipeActionFor,
   toggleChecklistItem,
   toneLevelOffset,
+  computeNagBurst,
+  describeFireTimes,
+  describeNagPlan,
+  describeNagPreset,
+  describeRelativeFireTime,
+  isPastDue,
+  matchNagPreset,
+  NAG_PRESETS,
   DEFAULT_SETTINGS,
   NAG_TONES,
   SETTING_LIMITS,
@@ -768,10 +776,23 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
     return Number.isNaN(parsed.getTime()) ? quickFireAt("hour") : parsed;
   });
   const [intervalSeconds, setIntervalSeconds] = useState(task.nagIntervalSeconds);
-  const [maxCount, setMaxCount] = useState(task.nagMaxCount ?? 6);
+  const [maxCount, setMaxCount] = useState<number | null>(task.nagMaxCount);
   const [shrink, setShrink] = useState(task.escalationMode === "shrink");
   const [repeat, setRepeat] = useState<RepeatRule | null>(
     isRepeatRule(task.repeatRule) ? task.repeatRule : null
+  );
+
+  // A task matching no preset opens in Custom rather than snapping to the
+  // nearest one and silently changing its schedule.
+  const activePreset = matchNagPreset(intervalSeconds, maxCount);
+  const [custom, setCustom] = useState(
+    () => matchNagPreset(task.nagIntervalSeconds, task.nagMaxCount) === null
+  );
+
+  // Pre-expanded when something already lives behind it — collapsing a note
+  // the user wrote is a good way to lose it.
+  const [showMore, setShowMore] = useState(
+    () => (task.notes?.trim().length ?? 0) > 0 || isRepeatRule(task.repeatRule)
   );
 
   const intervals = INTERVAL_CHOICES.some((c) => c.seconds === intervalSeconds)
@@ -780,6 +801,21 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
         ...INTERVAL_CHOICES,
         { label: formatInterval(intervalSeconds), seconds: intervalSeconds },
       ];
+
+  const pastDue = dated && isPastDue(fireAt);
+  const firePreview = useMemo(() => {
+    if (!dated) return "Undated — nothing will fire.";
+    const burst = computeNagBurst({
+      fireAt: pastDue ? new Date() : fireAt,
+      nagIntervalSeconds: intervalSeconds,
+      nagMaxCount: maxCount,
+      // Shrink can't apply to a single fire, so "Just once" (badgr's nag-off,
+      // plan §9.1) never persists a flag that will never take effect.
+      escalationMode: shrink && maxCount !== 1 ? "shrink" : "none",
+    });
+    const when = pastDue ? `${describeRelativeFireTime(fireAt)} — ` : "";
+    return `${when}${describeFireTimes(burst)}`;
+  }, [dated, pastDue, fireAt, intervalSeconds, maxCount, shrink]);
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
@@ -805,25 +841,6 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
             onChangeText={setTitle}
             placeholderTextColor={colors.textSecondary}
           />
-
-          <Text style={styles.editorLabel}>NOTES</Text>
-          <TextInput
-            style={[styles.input, styles.editorNotes]}
-            value={notes}
-            onChangeText={setNotes}
-            placeholder={
-              'Shown as the notification body (instead of the sass). Lines like "- [ ] item" become a checklist.'
-            }
-            placeholderTextColor={colors.textSecondary}
-            multiline
-          />
-          <Pressable
-            style={styles.checklistAddBtn}
-            onPress={() => setNotes((current) => appendChecklistItem(current))}
-          >
-            <Icon name="plus" size={13} color={colors.textSecondary} />
-            <Text style={styles.checklistAddBtnText}>Add checklist item</Text>
-          </Pressable>
 
           <View style={styles.settingRow}>
             <Text style={styles.settingName}>Has a date</Text>
@@ -884,89 +901,200 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
                 </Pressable>
               </View>
 
-              <Text style={styles.editorLabel}>REPEAT</Text>
-              <View style={styles.whenRow}>
+            </>
+          )}
+
+          {/*
+            Nag presets (due-parity plan §3.3). Same labels as web, from the
+            same core functions — that shared source is invariant U7.
+          */}
+          <Text style={styles.editorLabel}>NAGGING</Text>
+          <View style={styles.nagPresetList}>
+            {NAG_PRESETS.map((preset) => {
+              const active = !custom && activePreset?.id === preset.id;
+              return (
                 <Pressable
-                  style={[styles.whenChip, repeat === null && styles.whenChipActive]}
-                  onPress={() => setRepeat(null)}
+                  key={preset.id}
+                  style={[styles.nagPresetRow, active && styles.nagPresetRowActive]}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: active }}
+                  onPress={() => {
+                    setCustom(false);
+                    setIntervalSeconds(preset.intervalSeconds);
+                    setMaxCount(preset.maxCount);
+                  }}
                 >
-                  <Text
-                    style={[
-                      styles.whenChipText,
-                      repeat === null && styles.whenChipTextActive,
-                    ]}
-                  >
-                    Never
+                  <Text style={[styles.nagPresetName, active && styles.nagPresetNameActive]}>
+                    {preset.label}
                   </Text>
+                  <Text style={styles.nagPresetSub}>{describeNagPreset(preset)}</Text>
                 </Pressable>
-                {REPEAT_RULES.map((rule) => (
+              );
+            })}
+            <Pressable
+              style={[styles.nagPresetRow, custom && styles.nagPresetRowActive]}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: custom }}
+              onPress={() => setCustom(true)}
+            >
+              <Text style={[styles.nagPresetName, custom && styles.nagPresetNameActive]}>
+                Custom
+              </Text>
+              <Text style={styles.nagPresetSub}>
+                {describeNagPlan({
+                  intervalSeconds,
+                  maxCount,
+                  escalationMode: shrink ? "shrink" : "none",
+                })}
+              </Text>
+            </Pressable>
+          </View>
+
+          {custom ? (
+            <View style={styles.nagPresetCustom}>
+              <View style={styles.whenRow}>
+                {intervals.map((choice) => (
                   <Pressable
-                    key={rule}
-                    style={[styles.whenChip, repeat === rule && styles.whenChipActive]}
-                    onPress={() => setRepeat(rule)}
+                    key={choice.seconds}
+                    style={[
+                      styles.whenChip,
+                      intervalSeconds === choice.seconds && styles.whenChipActive,
+                    ]}
+                    onPress={() => setIntervalSeconds(choice.seconds)}
                   >
                     <Text
                       style={[
                         styles.whenChipText,
-                        repeat === rule && styles.whenChipTextActive,
+                        intervalSeconds === choice.seconds && styles.whenChipTextActive,
                       ]}
                     >
-                      {REPEAT_LABELS[rule]}
+                      {choice.label}
                     </Text>
                   </Pressable>
                 ))}
               </View>
-            </>
-          )}
 
-          <Text style={styles.editorLabel}>NAG EVERY</Text>
-          <View style={styles.whenRow}>
-            {intervals.map((choice) => (
-              <Pressable
-                key={choice.seconds}
-                style={[
-                  styles.whenChip,
-                  intervalSeconds === choice.seconds && styles.whenChipActive,
-                ]}
-                onPress={() => setIntervalSeconds(choice.seconds)}
-              >
-                <Text
-                  style={[
-                    styles.whenChipText,
-                    intervalSeconds === choice.seconds && styles.whenChipTextActive,
-                  ]}
-                >
-                  {choice.label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
+              <View style={styles.settingRow}>
+                <View style={styles.settingText}>
+                  <Text style={styles.settingName}>Times</Text>
+                  <Text style={styles.settingDesc}>
+                    Lifetime cap — or turn it off to nag until done.
+                  </Text>
+                </View>
+                <Stepper
+                  value={maxCount ?? 20}
+                  min={1}
+                  max={20}
+                  label="nag count"
+                  onChange={setMaxCount}
+                />
+              </View>
 
-          <View style={styles.settingRow}>
-            <View style={styles.settingText}>
-              <Text style={styles.settingName}>Times</Text>
-              <Text style={styles.settingDesc}>
-                Lifetime cap on this task's nags.
-              </Text>
+              <View style={styles.settingRow}>
+                <View style={styles.settingText}>
+                  <Text style={styles.settingName}>Until marked done</Text>
+                  <Text style={styles.settingDesc}>Ignore the cap and keep going.</Text>
+                </View>
+                <Toggle
+                  value={maxCount == null}
+                  label="Nag until marked done"
+                  onChange={(on) => setMaxCount(on ? null : 6)}
+                />
+              </View>
+
+              <View style={styles.settingRow}>
+                <View style={styles.settingText}>
+                  <Text style={styles.settingName}>Shrink intervals</Text>
+                  <Text style={styles.settingDesc}>
+                    Each nag lands sooner than the last.
+                  </Text>
+                </View>
+                <Toggle value={shrink} label="Shrink intervals" onChange={setShrink} />
+              </View>
             </View>
-            <Stepper
-              value={maxCount}
-              min={1}
-              max={20}
-              label="nag count"
-              onChange={setMaxCount}
+          ) : null}
+
+          {/* Actual clock times, from computeNagBurst — invariants U1 and U2. */}
+          <Text style={[styles.firePreview, pastDue && styles.firePreviewPastDue]}>
+            {firePreview}
+          </Text>
+
+          {/*
+            Progressive disclosure (plan §3.2). Notes and Repeat sit here, not
+            the nag presets — badgr exists to badger, so burying the nag config
+            would hide the point of the app. Deviation from Due is recorded in
+            the plan's Phase 3 note.
+          */}
+          <Pressable
+            style={styles.moreOptions}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: showMore }}
+            onPress={() => setShowMore((open) => !open)}
+          >
+            <Icon name="chevron" size={14} color={colors.accent} />
+            <Text style={styles.moreOptionsText}>
+              {showMore ? "Fewer options" : "More options"}
+            </Text>
+          </Pressable>
+
+          {showMore ? (
+            <View>
+            <Text style={styles.editorLabel}>NOTES</Text>
+            <TextInput
+              style={[styles.input, styles.editorNotes]}
+              value={notes}
+              onChangeText={setNotes}
+              placeholder={
+                'Shown as the notification body (instead of the sass). Lines like "- [ ] item" become a checklist.'
+              }
+              placeholderTextColor={colors.textSecondary}
+              multiline
             />
-          </View>
-
-          <View style={styles.settingRow}>
-            <View style={styles.settingText}>
-              <Text style={styles.settingName}>Shrink intervals</Text>
-              <Text style={styles.settingDesc}>
-                Each nag lands sooner than the last.
-              </Text>
+            <Pressable
+              style={styles.checklistAddBtn}
+              onPress={() => setNotes((current) => appendChecklistItem(current))}
+            >
+              <Icon name="plus" size={13} color={colors.textSecondary} />
+              <Text style={styles.checklistAddBtnText}>Add checklist item</Text>
+            </Pressable>
+              {dated ? (
+                <>
+                <Text style={styles.editorLabel}>REPEAT</Text>
+                <View style={styles.whenRow}>
+                  <Pressable
+                    style={[styles.whenChip, repeat === null && styles.whenChipActive]}
+                    onPress={() => setRepeat(null)}
+                  >
+                    <Text
+                      style={[
+                        styles.whenChipText,
+                        repeat === null && styles.whenChipTextActive,
+                      ]}
+                    >
+                      Never
+                    </Text>
+                  </Pressable>
+                  {REPEAT_RULES.map((rule) => (
+                    <Pressable
+                      key={rule}
+                      style={[styles.whenChip, repeat === rule && styles.whenChipActive]}
+                      onPress={() => setRepeat(rule)}
+                    >
+                      <Text
+                        style={[
+                          styles.whenChipText,
+                          repeat === rule && styles.whenChipTextActive,
+                        ]}
+                      >
+                        {REPEAT_LABELS[rule]}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                </>
+              ) : null}
             </View>
-            <Toggle value={shrink} label="Shrink intervals" onChange={setShrink} />
-          </View>
+          ) : null}
 
           <View style={styles.editorActions}>
             <ActionButton icon="close" label="Cancel" tone="quiet" onPress={onClose} />
@@ -1911,6 +2039,79 @@ const styles = StyleSheet.create({
   editorNotes: {
     minHeight: 64,
     textAlignVertical: "top",
+  },
+  moreOptions: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginHorizontal: spacing.md,
+    marginTop: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+  },
+  moreOptionsText: {
+    ...typography.caption,
+    color: colors.accent,
+    fontWeight: "700",
+  },
+  nagPresetList: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    overflow: "hidden",
+    marginHorizontal: spacing.md,
+  },
+  nagPresetRow: {
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    gap: 2,
+  },
+  nagPresetRowActive: {
+    backgroundColor: colors.accentSoft,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.accent,
+  },
+  nagPresetName: {
+    ...typography.body,
+    color: colors.textPrimary,
+    fontWeight: "600",
+  },
+  nagPresetNameActive: {
+    color: colors.accent,
+  },
+  /** The derived subtitle — the pattern this whole phase exists for. */
+  nagPresetSub: {
+    ...typography.caption,
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  nagPresetCustom: {
+    marginTop: spacing.sm,
+    marginLeft: spacing.md + 11,
+    paddingLeft: 11,
+    borderLeftWidth: 2,
+    borderLeftColor: colors.border,
+  },
+  /** Enumerated fire times. Prominent on purpose — see invariant U1. */
+  firePreview: {
+    ...typography.caption,
+    marginHorizontal: spacing.md,
+    marginTop: spacing.md,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: radii.sm,
+    backgroundColor: colors.surfaceRaised,
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
+  firePreviewPastDue: {
+    backgroundColor: colors.dangerSoft,
+    color: colors.danger,
   },
   editorActions: {
     flexDirection: "row",

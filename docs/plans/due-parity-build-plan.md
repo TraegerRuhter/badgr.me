@@ -1,8 +1,9 @@
 # Build plan: reminder-editing parity with Due
 
-**Status:** spec frozen, nothing built. Derived from a 90-second screen
-recording of Due for iOS (§1). Section numbers here are referenced from code
-comments — cite them rather than restating the reasoning inline.
+**Status:** Phases 1–3 built and merged-ready (PR #38); Phase 4 is next and
+needs a go-ahead on its schema change. Derived from a 90-second screen recording
+of Due for iOS (§1). Section numbers here are referenced from code comments —
+cite them rather than restating the reasoning inline.
 
 The goal is **not** to clone Due. It is to import the handful of interaction
 patterns Due gets right (§2) into badgr's existing model, using badgr's own
@@ -258,30 +259,125 @@ Constraints on this module:
 
 Each gate is blocking. No phase starts until the prior gate is signed off.
 
-**Phase 1 — Derived-label engine.** `packages/core/src/describe.ts` per §5.
+**Phase 1 — Derived-label engine. DONE.** `packages/core/src/describe.ts` per §5.
 No UI, no schema change.
 *Gate: unit tests cover every duration boundary (59 s, 60 s, 90 min, 24 h) and
 every §3.3 preset string; `describeFireTimes` is proven to accept only real
 planner output.*
 
-**Phase 2 — Nag presets + past-due affordance.** Wire §3.3's preset list and
+**Phase 2 — Nag presets + past-due affordance. DONE.** Wire §3.3's preset list and
 §3.5's red/"Now" behaviour into the existing Edit sheet on both clients. Still
 no schema change — presets are just `(nagIntervalSeconds, nagMaxCount)` pairs.
 *Gate: identical label strings on web and mobile (U7), asserted by a shared
 test, not by eyeballing.*
 
-**Phase 3 — Progressive disclosure.** Restructure the Edit sheet into §3.2's
+**Phase 3 — Progressive disclosure. DONE.** Restructure the Edit sheet into §3.2's
 collapsed-by-default shape with a "More Options" expansion. Inline the date
 picker per §3.1.
 *Gate: every existing edit flow still reachable in the same or fewer taps —
 enumerate them before starting, verify after.*
 
-**Phase 4 — Per-task snooze and lead time.** Adds `Task.snoozeSeconds`
-(nullable, null = fall back to the global setting) and `Task.leadTimeSeconds`.
-Lead time adds a *second* pre-scheduled notification per task.
+**Deliberate deviation from Due.** Due puts Nag-Me behind More Options, because
+Due is a general reminder app where nagging is one feature among many. badgr's
+entire premise is badgering, so the nag presets stay on the top level and Notes
+and Repeat move behind the disclosure instead. §0 says import the patterns, not
+the layout; this is that distinction in practice.
+
+Flow inventory taken before the restructure (the gate's "before"):
+
+| # | Flow | Taps from editor open, before |
+| --- | --- | --- |
+| 1 | Edit title | 0 (focus and type) |
+| 2 | Edit notes | 0 |
+| 3 | Add checklist item | 1 |
+| 4 | Toggle has-a-date | 1 |
+| 5 | Set exact date/time | 1 (native picker) |
+| 6 | Time-of-day chip (07:00/12:00/17:00/21:00) | 1 |
+| 7 | Today / +1 day / +1 week | 1 |
+| 8 | Set repeat cadence | 1 |
+| 9 | Pick a nag preset | 1 |
+| 10 | Custom interval | 2 (Custom, then chip) |
+| 11 | Custom count | 2 (Custom, then stepper) |
+| 12 | Until-marked-done | 2 |
+| 13 | Shrink intervals | 2 |
+| 14 | Save / Cancel | 1 |
+
+Flows 2, 3 and 8 gain one tap (the More-options disclosure). Everything else is
+unchanged, and the default view drops from fourteen controls to six.
+
+**Phase 4 — Pre-alarm lead time. NEXT — needs a go-ahead.** Adds
+`Task.leadTimeSeconds` (nullable). Per-task snooze is **deferred**: §9.3.2
+questions whether it earns a permanent sync-payload field given the global
+setting already exists and badgr is single-user. Don't bundle the two.
+
+Lead time adds a *second* pre-scheduled notification per task, so it is the
+first change that can push against the notification ceiling.
+
+Everything it touches, because missing any one of these ships a half-feature:
+
+| File | Change |
+| --- | --- |
+| `packages/core/src/types.ts` | `Task.leadTimeSeconds: number \| null` |
+| `packages/core/src/nag.ts` | `SchedulableTask.leadTimeSeconds`; reserve its slot in `allocateNotificationBudget` |
+| `packages/core/src/notifications.ts` | Pre-alarm id (the current scheme is `nag:{taskId}:{index}` and assumes a non-negative index) and its own copy |
+| `apps/mobile/src/db/database.ts` | Migration v3 — plain `ALTER TABLE`, same shape as v1's `snooze_count` |
+| `apps/web/src/db/database.ts` | `normalizeStoredTask` backfill |
+| `packages/supabase` | Row mapping — **miss this and sync silently drops the field** |
+| Both editors | The §3.6 Lead Time control |
+
 *Gate: `allocateNotificationBudget` accounts for pre-alarms and a test proves
 the 60-slot ceiling holds with every task carrying a lead time (U6). Sync
-round-trips both fields through `reconcileTasks` unchanged.*
+round-trips the field through `reconcileTasks` unchanged.*
+
+Design note settled in advance: schedule the **burst before the pre-alarm** when
+budget is tight. If only one slot is left, the notification at the actual fire
+time is worth more than the heads-up before it.
+
+#### BLOCKER — any new `Task` field collides with the BDGR1 encrypted format
+
+Found by building Phase 4 to completion and running the suite. **This is not
+specific to lead time; it applies to every future field on `Task`,** so read it
+before planning Phases 5 or 6 too.
+
+`packages/crypto/src/canonical.ts` serialises a `Task` with a **fixed key list**
+that is part of the on-disk format, and `parseNdjson` throws
+`Missing field "<key>"` for anything absent. That produces a fork with no
+free option:
+
+| Choice | Consequence |
+| --- | --- |
+| Add the key to `TASK_KEYS` | **Every existing vault becomes unreadable** — old snapshots lack the field, so `parseNdjson` throws |
+| Leave it out | Encrypted file sync **silently drops** the field, while Supabase sync carries it — the two sync paths disagree |
+
+`canonical.ts` states the intended remedy in its own header ("adding a Task
+field means adding it here and bumping the format version"), and
+`docs/HANDOFF.md` is explicit that a failing `vectors.test.ts` means bumping
+`FORMAT_VERSION` and writing a migration rather than pasting new bytes.
+
+So Phase 4 needs a format decision first. Three candidates:
+
+1. **Bump `FORMAT_VERSION` to 2, teach `decodeHeader` to accept 1 and 2, and
+   backfill on read.** The documented path. Costs a version bump and a
+   migration, and regenerated vectors.
+2. **Make reads tolerant of trailing keys** — split `TASK_KEYS` into a required
+   v1 core plus later-added keys backfilled to `null` on read. No version bump,
+   old vaults stay readable, and new vaults still open in old clients (the extra
+   key rides along unused). Protobuf's approach. Still changes canonical bytes
+   for new writes, so vectors must be regenerated deliberately.
+3. **Freeze `Task` as the sync payload** and put UI-only fields somewhere that
+   isn't synced. Cheapest now, but pushes the problem into Phase 5.
+
+My read is (2), because it keeps old and new clients mutually readable and
+avoids a version bump that buys nothing here — but it touches persisted,
+encrypted user data and the repo has a written rule pointing at (1), so it is
+the owner's call, not an implementation detail.
+
+**The Phase 4 code itself is done and mechanical** — types, budget reservation,
+pre-alarm id and copy, the SQLite v3 migration, the web store, the Supabase row
+mapping and its SQL migration, and every fixture. It is stashed on the branch as
+`Phase 4 lead-time WIP — blocked on BDGR1 canonical format decision`
+(`git stash list`). Redoing it from scratch is ~20 minutes; the decision above is
+the only real work left.
 
 **Phase 5 — Intra-day recurrence (badgr's DayMinder).** §3.4. New fields for
 interval, and a count-or-duration cap. AutoComplete semantics are the hard part:
@@ -330,23 +426,61 @@ or visibly absent — no half-working state.*
 
 ---
 
-## 9. Open decisions
+## 9. Decisions
 
-1. **What "Nag off" means in badgr.** Due has both "Default (Off)" and
-   "Nag-Me Off". badgr has `dismissedAt` (pause, PowerCircle) and
-   `escalationMode`. These are three overlapping concepts and shipping all
-   three would be incoherent. **Decide before Phase 2.**
-2. **Duration formatting rule.** Due prints "(90 min)" for 15 min × 6 but
-   "(3 hours)" for 30 min × 6 — so it switches to hours only on a whole-hour
-   boundary. Confirm from the frames and pin it, or pick badgr's own rule and
-   pin that. Either is fine; ambiguity is not.
-3. **Name for intra-day recurrence.** "DayMinder" is Due's. Candidates: Rounds,
+### 9.1 What "nag off" means — RESOLVED
+
+Three concepts already overlap (`dismissedAt`, `escalationMode`, and the nag
+fields). Shipping a fourth would be incoherent, so each gets exactly one job:
+
+| Concept | Meaning | Field |
+| --- | --- | --- |
+| **PowerCircle / pause** | Mute this task entirely — no alert at all | `dismissedAt` (exists, already in UI) |
+| **Nag preset** | How insistently it repeats *after* the first fire | `nagIntervalSeconds` + `nagMaxCount` |
+| **Escalation** | Whether the interval tightens as you ignore it | `escalationMode` (orthogonal) |
+
+**badgr's equivalent of "Nag-Me Off" is a "Just once" preset —
+`nagMaxCount: 1`.** The task still alerts you once; it just doesn't badger.
+That is the right semantic for this app specifically: badgr's whole premise is
+badgering, so "off" must not mean "silent". Silent is what the PowerCircle is
+for, and it already exists.
+
+Consequence: **no schema change, and no new "off" state.** The preset list is
+purely a set of `(nagIntervalSeconds, nagMaxCount)` pairs.
+
+### 9.2 Duration formatting — RESOLVED
+
+Confirmed from the frames at full resolution: **Due contradicts itself.**
+
+| Source | 30 min | 90 min | 180 min | 220 min | 360 min |
+| --- | --- | --- | --- | --- | --- |
+| Preset subtitles (§3.3) | "30 min" | "90 min" | "3 hours" | — | "6 hours" |
+| Custom subtitle (§3.3) | — | — | — | "3 hr, 40 min" | — |
+
+The custom formatter switches to hours at 60 min and abbreviates ("1 hr",
+"2 hr", "4 hr"); the preset formatter holds minutes to at least 90 and spells
+out "hours". The same 90-minute duration would render two different ways
+depending on which screen you're looking at.
+
+**badgr uses one formatter everywhere:**
+
+- Below 60 minutes → `"9 min"`, `"30 min"`
+- 60 minutes and above → `"1 hr"`, `"2 hr"`, `"3 hr, 40 min"`, `"4 hr"`
+- Exact hours omit the minutes component entirely
+- Abbreviated (`hr` / `min`), comma-joined
+
+This is Due's custom-formatter rule, which is the internally consistent of the
+two. One function, `formatDuration`, and §7's boundary tests pin it.
+
+### 9.3 Still open
+
+1. **Name for intra-day recurrence.** "DayMinder" is Due's. Candidates: Rounds,
    Loop, Burst (already means something in `computeNagBurst` — avoid). Needs a
    name before Phase 5 writes it into the schema.
-4. **Whether per-task snooze is worth the schema change**, given the global
+2. **Whether per-task snooze is worth the schema change**, given the global
    setting already exists and badgr is single-user. Cheap to add, but it is
    one more field on every sync payload.
-5. **Melody/Sound/Alert Message** are listed in §3.2 but excluded from §0.
+3. **Melody/Sound/Alert Message** are listed in §3.2 but excluded from §0.
    Revisit only if per-task sound becomes a real request.
 
 ---

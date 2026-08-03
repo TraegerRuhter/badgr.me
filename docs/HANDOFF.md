@@ -7,12 +7,43 @@ build plan for whichever workstream you've been asked to pick up.
 
 | Workstream | Plan | State |
 | --- | --- | --- |
-| Encrypted portable sync | `docs/plans/portable-sync-build-plan.md` | Phases 1–3 built; Phase 3's gate needs physical devices |
-| Reminder-editing parity with Due | `docs/plans/due-parity-build-plan.md` | Spec frozen, **nothing built** |
+| Encrypted portable sync | `docs/plans/portable-sync-build-plan.md` | Phases 1–3 built and **merged** (#35, #36); Phase 3's gate needs physical devices |
+| Reminder-editing parity with Due | `docs/plans/due-parity-build-plan.md` | Phases 1–3 built, **PR #38 open and green**; Phase 4 needs a go-ahead |
 
-Everything below this line is the encrypted-sync workstream. For the Due-parity
-work, go straight to its plan — it is self-contained, and its §1 explains how to
-regenerate the reference frames.
+### Picking up the Due-parity work
+
+Go straight to its plan — it is self-contained, and its §1 explains how to
+regenerate the reference frames from the recording on branch `Vid`.
+
+Phases 1–3 are done: the derived-label engine (`packages/core/src/describe.ts`),
+nag presets with live fire-time previews, and progressive disclosure in both
+editors.
+
+**Phase 4 is written but blocked, and the blocker is bigger than Phase 4.**
+Adding *any* field to `Task` collides with the BDGR1 encrypted format:
+`canonical.ts` uses a fixed key list and `parseNdjson` rejects a row missing any
+of them, so adding a key makes existing vaults unreadable while omitting it
+makes encrypted file sync silently disagree with Supabase sync. The two
+workstreams in this table are not as independent as they look. The full analysis
+and three candidate fixes are in the Due-parity plan's Phase 4 section; the
+implementation is stashed on the branch (`git stash list`) pending that
+decision.
+
+Two things to know before touching this:
+
+- **`scripts/shots.mjs`** renders the web PWA at phone size with seeded fixtures
+  and a frozen clock. Build *without* `CI=true` first. It is how the screenshots
+  in the PR were produced, and the fastest way to see a change.
+- **The mobile UI cannot be rendered here.** `expo export --platform web` gets
+  as far as bundling — it needs `wasm` added to `config.resolver.assetExts` in
+  `apps/mobile/metro.config.js` — but `expo-sqlite`'s web worker never creates
+  the schema, so the app boots to an empty list and the editor is unreachable.
+  Mobile parity currently rests on typecheck plus the shared-source guard in
+  `apps/web/src/labelParity.test.ts`, not on anyone having looked at it.
+
+### Encrypted portable sync
+
+Everything below this line is the encrypted-sync workstream.
 
 ---
 
