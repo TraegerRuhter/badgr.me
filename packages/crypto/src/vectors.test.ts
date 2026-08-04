@@ -90,9 +90,18 @@ describe("noble ↔ WebCrypto interop", () => {
     const nonce = blob.slice(OFF.payloadNonce, OFF.payloadNonce + NONCE_BYTES);
     const ciphertext = blob.slice(HEADER_BYTES);
 
-    const key = await crypto.subtle.importKey("raw", vault.dataKey, "AES-GCM", false, [
-      "decrypt",
-    ]);
+    // Copied into a fresh buffer rather than passed directly: WebCrypto's
+    // BufferSource requires an ArrayBuffer-backed view, and a plain Uint8Array
+    // is typed as possibly SharedArrayBuffer-backed. Deliberately not going
+    // through this package's own importDataKey — the point of these vectors is
+    // that a *third party* using stock WebCrypto can read what we write.
+    const key = await crypto.subtle.importKey(
+      "raw",
+      new Uint8Array(vault.dataKey),
+      "AES-GCM",
+      false,
+      ["decrypt"]
+    );
     const plain = new Uint8Array(
       await crypto.subtle.decrypt(
         { name: "AES-GCM", iv: nonce, additionalData: header },
@@ -114,9 +123,18 @@ describe("noble ↔ WebCrypto interop", () => {
     header[OFF.seq + 7] ^= 0x01;
     const nonce = blob.slice(OFF.payloadNonce, OFF.payloadNonce + NONCE_BYTES);
 
-    const key = await crypto.subtle.importKey("raw", vault.dataKey, "AES-GCM", false, [
-      "decrypt",
-    ]);
+    // Copied into a fresh buffer rather than passed directly: WebCrypto's
+    // BufferSource requires an ArrayBuffer-backed view, and a plain Uint8Array
+    // is typed as possibly SharedArrayBuffer-backed. Deliberately not going
+    // through this package's own importDataKey — the point of these vectors is
+    // that a *third party* using stock WebCrypto can read what we write.
+    const key = await crypto.subtle.importKey(
+      "raw",
+      new Uint8Array(vault.dataKey),
+      "AES-GCM",
+      false,
+      ["decrypt"]
+    );
     await expect(
       crypto.subtle.decrypt(
         { name: "AES-GCM", iv: nonce, additionalData: header },
