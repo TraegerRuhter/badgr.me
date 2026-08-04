@@ -195,6 +195,19 @@ try {
         await drawer.evaluate((el) => el.scrollTo(0, el.scrollHeight));
         await page.waitForTimeout(400);
         await shoot(page, "08-editor-more", "notes + repeat behind disclosure");
+
+        // Phase 4: the pre-alarm row only exists on a dated task, and its
+        // summary line is the thing worth seeing — pick a value so the shot
+        // shows a derived sentence rather than the default "Off".
+        const leadChip = page
+          .locator(".when-row .when-chip", { hasText: /^15 min$/ })
+          .first();
+        if (await leadChip.count()) {
+          await leadChip.scrollIntoViewIfNeeded();
+          await leadChip.click();
+          await page.waitForTimeout(350);
+          await shoot(page, "09-editor-leadtime", "pre-alarm lead time (Phase 4)");
+        }
       }
     }
   }
@@ -217,7 +230,7 @@ try {
       const drawer = page.locator("aside.drawer");
       await drawer.evaluate((el) => el.scrollTo(0, el.scrollHeight));
       await page.waitForTimeout(400);
-      await shoot(page, "09-vault-setup", "vault setup — no-recovery acknowledgement");
+      await shoot(page, "10-vault-setup", "vault setup — no-recovery acknowledgement");
 
       const recoverLink = page.getByText("Forgotten your passphrase", { exact: false });
       if (await recoverLink.count()) {
@@ -225,7 +238,7 @@ try {
         await page.waitForTimeout(350);
         await drawer.evaluate((el) => el.scrollTo(0, el.scrollHeight));
         await page.waitForTimeout(350);
-        await shoot(page, "10-vault-recover", "recover with the sheet");
+        await shoot(page, "11-vault-recover", "recover with the sheet");
       }
     }
   }
