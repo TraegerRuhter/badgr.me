@@ -233,3 +233,54 @@ export function describeLeadTime(seconds: number | null): string {
   if (seconds == null || seconds <= 0) return "No heads-up before it's due";
   return `Heads-up ${formatDuration(seconds)} before`;
 }
+
+/**
+ * Rounds — intra-day recurrence (§3.4). Named in the plan's §9.3.1: not
+ * Due's "DayMinder", and not "Burst" (`computeNagBurst` already owns that
+ * word).
+ *
+ * §3.4's cap is a single `Off | Count | Duration` control — `maxCount` and
+ * `durationSeconds` are mutually exclusive, matching `Task.roundsMaxCount`/
+ * `Task.roundsDurationSeconds`.
+ */
+export interface RoundsPlanInput {
+  intervalSeconds: number | null;
+  maxCount: number | null;
+  durationSeconds: number | null;
+}
+
+/** The Rounds row's derived summary: "Off" / "Every 1 hr, 2 times" / "Every 1 hr for 2 hr". */
+export function describeRoundsPlan(input: RoundsPlanInput): string {
+  const { intervalSeconds, maxCount, durationSeconds } = input;
+  if (intervalSeconds == null) return "Off";
+
+  const every = formatInterval(intervalSeconds);
+  if (maxCount != null) return `${every}, ${maxCount} ${maxCount === 1 ? "time" : "times"}`;
+  if (durationSeconds != null) return `${every} for ${formatDuration(durationSeconds)}`;
+  // An interval with neither cap set is an incomplete/invalid config — degrade
+  // to Off rather than implying an unbounded schedule nobody chose.
+  return "Off";
+}
+
+/**
+ * Rounds' AutoComplete decision (plan §3.4, §6): Due offers a toggle between
+ * "fire on a schedule" and "fire when the previous one is marked done" — two
+ * different scheduling models, and the second can't be pre-armed as local
+ * notifications the way everything else in this app is. Rather than ship a
+ * toggle whose "off" position silently does nothing (no half-working state,
+ * per the build plan's Phase 5 gate), Rounds only implements the schedule
+ * model; there is no AutoComplete control in either editor. This string is
+ * the explanation shown in its place — one function so both clients render
+ * identical wording (U7).
+ */
+export const ROUNDS_SCHEDULE_NOTE =
+  "Rounds fire on a fixed schedule from the start time, not when you mark one done.";
+
+/**
+ * The plain, non-escalating body for a single Rounds fire (plan §3.4). Rounds
+ * doesn't badger — it's a fixed schedule, not a response to being ignored —
+ * so unlike the Nag-Me burst it skips the copy ladder entirely.
+ */
+export function describeRoundOccurrence(index: number): string {
+  return `Round ${index + 1}`;
+}

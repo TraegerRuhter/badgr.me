@@ -208,6 +208,18 @@ try {
           await page.waitForTimeout(350);
           await shoot(page, "09-editor-leadtime", "pre-alarm lead time (Phase 4)");
         }
+
+        // Phase 5: Rounds — pick "Count" so the shot shows a live enumerated
+        // fire-time preview rather than the default "Off" state.
+        const countSegment = page.getByRole("radio", { name: "Count" });
+        if (await countSegment.count()) {
+          await countSegment.first().scrollIntoViewIfNeeded();
+          await countSegment.first().click();
+          await page.waitForTimeout(350);
+          await drawer.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+          await page.waitForTimeout(350);
+          await shoot(page, "10-editor-rounds", "Rounds — intra-day recurrence (Phase 5)");
+        }
       }
     }
   }
@@ -230,7 +242,7 @@ try {
       const drawer = page.locator("aside.drawer");
       await drawer.evaluate((el) => el.scrollTo(0, el.scrollHeight));
       await page.waitForTimeout(400);
-      await shoot(page, "10-vault-setup", "vault setup — no-recovery acknowledgement");
+      await shoot(page, "11-vault-setup", "vault setup — no-recovery acknowledgement");
 
       const recoverLink = page.getByText("Forgotten your passphrase", { exact: false });
       if (await recoverLink.count()) {
@@ -238,7 +250,7 @@ try {
         await page.waitForTimeout(350);
         await drawer.evaluate((el) => el.scrollTo(0, el.scrollHeight));
         await page.waitForTimeout(350);
-        await shoot(page, "11-vault-recover", "recover with the sheet");
+        await shoot(page, "12-vault-recover", "recover with the sheet");
       }
     }
   }

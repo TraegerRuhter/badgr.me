@@ -32,6 +32,9 @@ export interface TaskRow {
   deleted_at: string | null;
   snooze_count: number;
   lead_time_seconds: number | null;
+  rounds_interval_seconds: number | null;
+  rounds_max_count: number | null;
+  rounds_duration_seconds: number | null;
 }
 
 export function rowToTask(row: TaskRow): Task {
@@ -55,6 +58,9 @@ export function rowToTask(row: TaskRow): Task {
     snoozeCount: row.snooze_count,
     // Older rows predate the column; PostgREST returns undefined for it.
     leadTimeSeconds: row.lead_time_seconds ?? null,
+    roundsIntervalSeconds: row.rounds_interval_seconds ?? null,
+    roundsMaxCount: row.rounds_max_count ?? null,
+    roundsDurationSeconds: row.rounds_duration_seconds ?? null,
   };
 }
 
@@ -78,6 +84,9 @@ export function taskToRow(task: Task): TaskRow {
     deleted_at: task.deletedAt,
     snooze_count: task.snoozeCount,
     lead_time_seconds: task.leadTimeSeconds,
+    rounds_interval_seconds: task.roundsIntervalSeconds,
+    rounds_max_count: task.roundsMaxCount,
+    rounds_duration_seconds: task.roundsDurationSeconds,
   };
 }
 

@@ -59,7 +59,12 @@ const V1_KEYS = [
  *
  * Append here, in the order added — the position is part of the format.
  */
-const LATER_KEYS = ["leadTimeSeconds"] as const satisfies readonly (keyof Task)[];
+const LATER_KEYS = [
+  "leadTimeSeconds",
+  "roundsIntervalSeconds",
+  "roundsMaxCount",
+  "roundsDurationSeconds",
+] as const satisfies readonly (keyof Task)[];
 
 /**
  * What a snapshot written before the key existed should read as.
@@ -70,6 +75,9 @@ const LATER_KEYS = ["leadTimeSeconds"] as const satisfies readonly (keyof Task)[
  */
 const LATER_DEFAULTS: { [K in (typeof LATER_KEYS)[number]]: Task[K] } = {
   leadTimeSeconds: null,
+  roundsIntervalSeconds: null,
+  roundsMaxCount: null,
+  roundsDurationSeconds: null,
 };
 
 const TASK_KEYS = [...V1_KEYS, ...LATER_KEYS] as const;

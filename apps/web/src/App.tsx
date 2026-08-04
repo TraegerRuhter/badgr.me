@@ -3,12 +3,14 @@ import {
   appendChecklistItem,
   atTimeOfDay,
   computeNagBurst,
+  computeRoundsBurst,
   DEFAULT_SETTINGS,
   describeFireTimes,
   describeNagPlan,
   describeLeadTime,
   describeNagPreset,
   describeRelativeFireTime,
+  describeRoundsPlan,
   groupTasksIntoSections,
   isPastDue,
   isRepeatRule,
@@ -27,6 +29,7 @@ import {
   refreshNextOccurrenceCopy,
   REPEAT_LABELS,
   REPEAT_RULES,
+  ROUNDS_SCHEDULE_NOTE,
   SETTING_LIMITS,
   swipeActionFor,
   TIME_OF_DAY_CHIPS,
@@ -909,6 +912,19 @@ const INTERVAL_CHOICES: readonly { label: string; seconds: number }[] = [
   { label: "3h", seconds: 10800 },
 ];
 
+// Rounds' own interval choices (plan §3.4) — coarser than Nag-Me's, since
+// Rounds spaces out full reminder occurrences across a day, not sub-fires
+// within one.
+const ROUNDS_INTERVAL_CHOICES: readonly { label: string; seconds: number }[] = [
+  { label: "30m", seconds: 1800 },
+  { label: "1h", seconds: 3600 },
+  { label: "2h", seconds: 7200 },
+  { label: "4h", seconds: 14400 },
+];
+
+/** The §3.4 `Off | Count | Duration` control's three modes, local UI state only. */
+type RoundsCapMode = "off" | "count" | "duration";
+
 interface EditSheetProps {
   task: Task;
   onSave: (patch: TaskPatch) => void;
@@ -928,6 +944,20 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
   const [leadTime, setLeadTime] = useState<number | null>(task.leadTimeSeconds);
   const [repeat, setRepeat] = useState<RepeatRule | null>(
     isRepeatRule(task.repeatRule) ? task.repeatRule : null
+  );
+
+  // Rounds (plan §3.4): "Off | Count | Duration" is a single control, so its
+  // three fields collapse to one mode plus whichever value that mode uses.
+  // The interval is kept even while off, so switching back doesn't lose it.
+  const [roundsCapMode, setRoundsCapMode] = useState<RoundsCapMode>(() =>
+    task.roundsMaxCount != null ? "count" : task.roundsDurationSeconds != null ? "duration" : "off"
+  );
+  const [roundsIntervalSeconds, setRoundsIntervalSeconds] = useState(
+    task.roundsIntervalSeconds ?? 3600
+  );
+  const [roundsMaxCount, setRoundsMaxCount] = useState(task.roundsMaxCount ?? 2);
+  const [roundsDurationSeconds, setRoundsDurationSeconds] = useState(
+    task.roundsDurationSeconds ?? 7200
   );
 
   // A task whose fields don't match any preset opens straight into Custom,
@@ -957,6 +987,15 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
     : [
         ...INTERVAL_CHOICES,
         { label: formatInterval(intervalSeconds), seconds: intervalSeconds },
+      ];
+
+  const roundsIntervals = ROUNDS_INTERVAL_CHOICES.some(
+    (c) => c.seconds === roundsIntervalSeconds
+  )
+    ? ROUNDS_INTERVAL_CHOICES
+    : [
+        ...ROUNDS_INTERVAL_CHOICES,
+        { label: formatInterval(roundsIntervalSeconds), seconds: roundsIntervalSeconds },
       ];
 
   const setDatePart = (shift: (d: Date) => Date) => {
@@ -991,6 +1030,30 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
     return `${when}${describeFireTimes(burst)}`;
   }, [fireAtMs, pastDue, intervalSeconds, maxCount, shrink]);
 
+  /**
+   * Rounds' own "will fire at …" line (plan §3.4, invariant U2). Fed from
+   * `computeRoundsBurst`, which is itself just a translation into
+   * `computeNagBurst` — never a parallel formatter.
+   */
+  const roundsFirePreview = useMemo(() => {
+    if (fireAtMs == null || roundsCapMode === "off") return null;
+    const at = new Date(fireAtMs);
+    const burst = computeRoundsBurst({
+      fireAt: pastDue ? new Date() : at,
+      intervalSeconds: roundsIntervalSeconds,
+      maxCount: roundsCapMode === "count" ? roundsMaxCount : null,
+      durationSeconds: roundsCapMode === "duration" ? roundsDurationSeconds : null,
+    });
+    return describeFireTimes(burst);
+  }, [
+    fireAtMs,
+    pastDue,
+    roundsCapMode,
+    roundsIntervalSeconds,
+    roundsMaxCount,
+    roundsDurationSeconds,
+  ]);
+
   const save = () => {
     const parsed = new Date(fireAt);
     const nextFireAt = !dated
@@ -1011,6 +1074,12 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
       leadTimeSeconds: dated ? leadTime : null,
       // A repeat needs a date to repeat from — clearing the date clears it too.
       repeatRule: dated ? repeat : null,
+      // Rounds needs a start time too, and "Off" clears both cap fields —
+      // only one of them is ever meant to be set (plan §3.4).
+      roundsIntervalSeconds: dated && roundsCapMode !== "off" ? roundsIntervalSeconds : null,
+      roundsMaxCount: dated && roundsCapMode === "count" ? roundsMaxCount : null,
+      roundsDurationSeconds:
+        dated && roundsCapMode === "duration" ? roundsDurationSeconds : null,
     });
   };
 
@@ -1280,6 +1349,65 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
                     </button>
                   ))}
                 </div>
+
+                {/*
+                  Rounds — intra-day recurrence (plan §3.4). Off | Count |
+                  Duration is a single control (RoundsCapSegmented); the
+                  interval stepper stays visible throughout so switching back
+                  from Off doesn't lose it.
+                */}
+                <div className="editor-label">Rounds</div>
+                <div className="when-row">
+                  {roundsIntervals.map((choice) => (
+                    <button
+                      key={choice.seconds}
+                      type="button"
+                      className={`when-chip${roundsIntervalSeconds === choice.seconds ? " active" : ""}`}
+                      onClick={() => setRoundsIntervalSeconds(choice.seconds)}
+                    >
+                      {choice.label}
+                    </button>
+                  ))}
+                </div>
+                <RoundsCapSegmented value={roundsCapMode} onChange={setRoundsCapMode} />
+                {roundsCapMode === "count" ? (
+                  <div className="setting-row">
+                    <p className="setting-name">Times</p>
+                    <Stepper
+                      value={roundsMaxCount}
+                      min={2}
+                      max={20}
+                      label="Rounds count"
+                      onChange={setRoundsMaxCount}
+                    />
+                  </div>
+                ) : null}
+                {roundsCapMode === "duration" ? (
+                  <div className="setting-row">
+                    <p className="setting-name">For</p>
+                    <Stepper
+                      value={roundsDurationSeconds / 3600}
+                      min={1}
+                      max={24}
+                      unit="h"
+                      label="Rounds duration"
+                      onChange={(hours) => setRoundsDurationSeconds(hours * 3600)}
+                    />
+                  </div>
+                ) : null}
+                <p className="setting-desc">
+                  {describeRoundsPlan({
+                    intervalSeconds: roundsCapMode === "off" ? null : roundsIntervalSeconds,
+                    maxCount: roundsCapMode === "count" ? roundsMaxCount : null,
+                    durationSeconds: roundsCapMode === "duration" ? roundsDurationSeconds : null,
+                  })}
+                </p>
+                {roundsFirePreview ? (
+                  <p className="fire-preview">{roundsFirePreview}</p>
+                ) : null}
+                {roundsCapMode !== "off" ? (
+                  <p className="setting-desc">{ROUNDS_SCHEDULE_NOTE}</p>
+                ) : null}
               </>
             ) : null}
           </div>
@@ -1388,6 +1516,38 @@ function ToneSegmented({ value, onChange }: SegmentedProps) {
           onClick={() => onChange(tone)}
         >
           {TONE_LABELS[tone]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const ROUNDS_CAP_MODES: readonly RoundsCapMode[] = ["off", "count", "duration"];
+const ROUNDS_CAP_LABELS: Record<RoundsCapMode, string> = {
+  off: "Off",
+  count: "Count",
+  duration: "Duration",
+};
+
+interface RoundsCapSegmentedProps {
+  value: RoundsCapMode;
+  onChange: (next: RoundsCapMode) => void;
+}
+
+/** Plan §3.4's `Off | Count | Duration` control. */
+function RoundsCapSegmented({ value, onChange }: RoundsCapSegmentedProps) {
+  return (
+    <div className="segmented" role="radiogroup" aria-label="Rounds">
+      {ROUNDS_CAP_MODES.map((mode) => (
+        <button
+          key={mode}
+          type="button"
+          role="radio"
+          aria-checked={value === mode}
+          className={`segment${value === mode ? " active" : ""}`}
+          onClick={() => onChange(mode)}
+        >
+          {ROUNDS_CAP_LABELS[mode]}
         </button>
       ))}
     </div>

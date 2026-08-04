@@ -20,17 +20,20 @@ import {
   toggleChecklistItem,
   toneLevelOffset,
   computeNagBurst,
+  computeRoundsBurst,
   describeFireTimes,
   describeNagPlan,
   describeLeadTime,
   describeNagPreset,
   describeRelativeFireTime,
+  describeRoundsPlan,
   isPastDue,
   LEAD_TIME_CHOICES,
   matchNagPreset,
   NAG_PRESETS,
   DEFAULT_SETTINGS,
   NAG_TONES,
+  ROUNDS_SCHEDULE_NOTE,
   SETTING_LIMITS,
   TIME_OF_DAY_CHIPS,
   WHEN_CHOICES,
@@ -763,6 +766,25 @@ const INTERVAL_CHOICES: readonly { label: string; seconds: number }[] = [
   { label: "3h", seconds: 10800 },
 ];
 
+// Rounds' own interval choices (plan §3.4) — coarser than Nag-Me's, since
+// Rounds spaces out full reminder occurrences across a day, not sub-fires
+// within one.
+const ROUNDS_INTERVAL_CHOICES: readonly { label: string; seconds: number }[] = [
+  { label: "30m", seconds: 1800 },
+  { label: "1h", seconds: 3600 },
+  { label: "2h", seconds: 7200 },
+  { label: "4h", seconds: 14400 },
+];
+
+/** The §3.4 `Off | Count | Duration` control's three modes, local UI state only. */
+type RoundsCapMode = "off" | "count" | "duration";
+const ROUNDS_CAP_MODES: readonly RoundsCapMode[] = ["off", "count", "duration"];
+const ROUNDS_CAP_LABELS: Record<RoundsCapMode, string> = {
+  off: "Off",
+  count: "Count",
+  duration: "Duration",
+};
+
 interface EditSheetProps {
   task: Task;
   onSave: (patch: TaskPatch) => void;
@@ -785,6 +807,20 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
     isRepeatRule(task.repeatRule) ? task.repeatRule : null
   );
 
+  // Rounds (plan §3.4): "Off | Count | Duration" is a single control, so its
+  // three fields collapse to one mode plus whichever value that mode uses.
+  // The interval is kept even while off, so switching back doesn't lose it.
+  const [roundsCapMode, setRoundsCapMode] = useState<RoundsCapMode>(() =>
+    task.roundsMaxCount != null ? "count" : task.roundsDurationSeconds != null ? "duration" : "off"
+  );
+  const [roundsIntervalSeconds, setRoundsIntervalSeconds] = useState(
+    task.roundsIntervalSeconds ?? 3600
+  );
+  const [roundsMaxCount, setRoundsMaxCount] = useState(task.roundsMaxCount ?? 2);
+  const [roundsDurationSeconds, setRoundsDurationSeconds] = useState(
+    task.roundsDurationSeconds ?? 7200
+  );
+
   // A task matching no preset opens in Custom rather than snapping to the
   // nearest one and silently changing its schedule.
   const activePreset = matchNagPreset(intervalSeconds, maxCount);
@@ -805,6 +841,15 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
         { label: formatInterval(intervalSeconds), seconds: intervalSeconds },
       ];
 
+  const roundsIntervals = ROUNDS_INTERVAL_CHOICES.some(
+    (c) => c.seconds === roundsIntervalSeconds
+  )
+    ? ROUNDS_INTERVAL_CHOICES
+    : [
+        ...ROUNDS_INTERVAL_CHOICES,
+        { label: formatInterval(roundsIntervalSeconds), seconds: roundsIntervalSeconds },
+      ];
+
   const pastDue = dated && isPastDue(fireAt);
   const firePreview = useMemo(() => {
     if (!dated) return "Undated — nothing will fire.";
@@ -819,6 +864,30 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
     const when = pastDue ? `${describeRelativeFireTime(fireAt)} — ` : "";
     return `${when}${describeFireTimes(burst)}`;
   }, [dated, pastDue, fireAt, intervalSeconds, maxCount, shrink]);
+
+  /**
+   * Rounds' own "will fire at …" line (plan §3.4, invariant U2). Fed from
+   * `computeRoundsBurst`, which is itself just a translation into
+   * `computeNagBurst` — never a parallel formatter.
+   */
+  const roundsFirePreview = useMemo(() => {
+    if (!dated || roundsCapMode === "off") return null;
+    const burst = computeRoundsBurst({
+      fireAt: pastDue ? new Date() : fireAt,
+      intervalSeconds: roundsIntervalSeconds,
+      maxCount: roundsCapMode === "count" ? roundsMaxCount : null,
+      durationSeconds: roundsCapMode === "duration" ? roundsDurationSeconds : null,
+    });
+    return describeFireTimes(burst);
+  }, [
+    dated,
+    pastDue,
+    fireAt,
+    roundsCapMode,
+    roundsIntervalSeconds,
+    roundsMaxCount,
+    roundsDurationSeconds,
+  ]);
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
@@ -1118,6 +1187,80 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
                     </Pressable>
                   ))}
                 </View>
+
+                {/*
+                  Rounds — intra-day recurrence (plan §3.4). Off | Count |
+                  Duration is a single control (Segmented<RoundsCapMode>); the
+                  interval stepper stays visible throughout so switching back
+                  from Off doesn't lose it.
+                */}
+                <Text style={styles.editorLabel}>ROUNDS</Text>
+                <View style={styles.whenRow}>
+                  {roundsIntervals.map((choice) => (
+                    <Pressable
+                      key={choice.seconds}
+                      style={[
+                        styles.whenChip,
+                        roundsIntervalSeconds === choice.seconds && styles.whenChipActive,
+                      ]}
+                      onPress={() => setRoundsIntervalSeconds(choice.seconds)}
+                    >
+                      <Text
+                        style={[
+                          styles.whenChipText,
+                          roundsIntervalSeconds === choice.seconds && styles.whenChipTextActive,
+                        ]}
+                      >
+                        {choice.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <Segmented<RoundsCapMode>
+                  options={ROUNDS_CAP_MODES}
+                  labels={ROUNDS_CAP_LABELS}
+                  value={roundsCapMode}
+                  label="Rounds"
+                  onChange={setRoundsCapMode}
+                />
+                {roundsCapMode === "count" ? (
+                  <View style={styles.settingRow}>
+                    <Text style={styles.settingName}>Times</Text>
+                    <Stepper
+                      value={roundsMaxCount}
+                      min={2}
+                      max={20}
+                      label="Rounds count"
+                      onChange={setRoundsMaxCount}
+                    />
+                  </View>
+                ) : null}
+                {roundsCapMode === "duration" ? (
+                  <View style={styles.settingRow}>
+                    <Text style={styles.settingName}>For</Text>
+                    <Stepper
+                      value={roundsDurationSeconds / 3600}
+                      min={1}
+                      max={24}
+                      unit="h"
+                      label="Rounds duration"
+                      onChange={(hours) => setRoundsDurationSeconds(hours * 3600)}
+                    />
+                  </View>
+                ) : null}
+                <Text style={styles.settingDesc}>
+                  {describeRoundsPlan({
+                    intervalSeconds: roundsCapMode === "off" ? null : roundsIntervalSeconds,
+                    maxCount: roundsCapMode === "count" ? roundsMaxCount : null,
+                    durationSeconds: roundsCapMode === "duration" ? roundsDurationSeconds : null,
+                  })}
+                </Text>
+                {roundsFirePreview ? (
+                  <Text style={styles.firePreview}>{roundsFirePreview}</Text>
+                ) : null}
+                {roundsCapMode !== "off" ? (
+                  <Text style={styles.settingDesc}>{ROUNDS_SCHEDULE_NOTE}</Text>
+                ) : null}
                 </>
               ) : null}
             </View>
@@ -1144,6 +1287,13 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
                   // A pre-alarm needs something to precede, so an undated task
                   // never keeps one.
                   leadTimeSeconds: dated ? leadTime : null,
+                  // Rounds needs a start time too, and "Off" clears both cap
+                  // fields — only one of them is ever meant to be set (plan §3.4).
+                  roundsIntervalSeconds:
+                    dated && roundsCapMode !== "off" ? roundsIntervalSeconds : null,
+                  roundsMaxCount: dated && roundsCapMode === "count" ? roundsMaxCount : null,
+                  roundsDurationSeconds:
+                    dated && roundsCapMode === "duration" ? roundsDurationSeconds : null,
                 })
               }
             />

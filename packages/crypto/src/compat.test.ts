@@ -61,13 +61,19 @@ describe("parseNdjson accepts pre-existing rows", () => {
     expect(parsed).toHaveLength(1);
     expect(parsed[0].id).toBe("old");
     expect(parsed[0].leadTimeSeconds).toBeNull();
+    expect(parsed[0].roundsIntervalSeconds).toBeNull();
+    expect(parsed[0].roundsMaxCount).toBeNull();
+    expect(parsed[0].roundsDurationSeconds).toBeNull();
   });
 
   it("backfills to 'unset', never to a value the user never chose", () => {
-    // A non-null default here would invent a pre-alarm and start firing
-    // notifications nobody asked for.
+    // A non-null default here would invent a pre-alarm (or a Rounds
+    // schedule) and start firing notifications nobody asked for.
     const parsed = parseNdjson(v1Ndjson([makeTask()]));
     expect(parsed[0].leadTimeSeconds).toBeNull();
+    expect(parsed[0].roundsIntervalSeconds).toBeNull();
+    expect(parsed[0].roundsMaxCount).toBeNull();
+    expect(parsed[0].roundsDurationSeconds).toBeNull();
   });
 
   it("still rejects a row missing an original field", () => {
@@ -122,9 +128,13 @@ describe("a vault sealed before the field existed still opens", () => {
     expect(opened.tasks[1].title).toBe("Water the plants");
   });
 
-  it("reads the added field as unset", () => {
+  it("reads the added fields as unset", () => {
     const { vault, blob } = sealV1([makeTask({ id: "a" })], 1n);
-    expect(openEnvelope(vault, blob).tasks[0].leadTimeSeconds).toBeNull();
+    const task = openEnvelope(vault, blob).tasks[0];
+    expect(task.leadTimeSeconds).toBeNull();
+    expect(task.roundsIntervalSeconds).toBeNull();
+    expect(task.roundsMaxCount).toBeNull();
+    expect(task.roundsDurationSeconds).toBeNull();
   });
 
   it("re-sealing an old snapshot writes it forward without losing anything", () => {

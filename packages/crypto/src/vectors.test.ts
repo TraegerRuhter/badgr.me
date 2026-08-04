@@ -19,6 +19,13 @@ import { fakeRandom, makeTask, TEST_KDF } from "./testing";
  * total length did not: the header carries no payload keys, and the 4 KiB
  * padding absorbs the extra bytes.
  *
+ * ## Regenerated again, 2026-08-04, when Rounds' three fields were added
+ *
+ * Same shape of change, same reason: `roundsIntervalSeconds`,
+ * `roundsMaxCount`, and `roundsDurationSeconds` appended to `LATER_KEYS`
+ * (plan §3.4, §9.4) moved `ciphertextHead`/`gcmTag` again. `length` and
+ * `header` held, for the same reason as last time — padding absorbs it.
+ *
  * That is only acceptable because **old vaults still open**, which is not
  * assumed here — `compat.test.ts` seals a genuine v1-shaped envelope and reads
  * it back, proving the missing key is backfilled rather than rejected. If a
@@ -48,8 +55,8 @@ const EXPECTED = {
     "f0396a988543e9532175c54ee80d2996db65d76ff1fe24bc8a92e728bb16908e" +
     "bd9e954aa7fd3ec65b32a7930e237a2570aa1d9b07cb2b30eed01aba35879c62" +
     "54a02530a48ab60000000000000000074fab18d33521508aeda5294e",
-  ciphertextHead: "f80ea33e3f8683cb44b21cdf609c67c121084936a7807b1c4a1465b8edf35d37",
-  gcmTag: "0faf2b6faedd1d6bd262c747b800a38b",
+  ciphertextHead: "f80ea32c3f8683cb44b21cdf609c6701d10d8937a7b8f777443e7199089a20ca",
+  gcmTag: "fbe4f7289ac31f3370b7f715efa9fe26",
 } as const;
 
 const hex = (b: Uint8Array) => Buffer.from(b).toString("hex");

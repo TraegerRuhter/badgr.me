@@ -8,7 +8,7 @@ build plan for whichever workstream you've been asked to pick up.
 | Workstream | Plan | State |
 | --- | --- | --- |
 | Encrypted portable sync | `docs/plans/portable-sync-build-plan.md` | Phases 1–3 **merged** (#35, #36). §7 recovery sheet + passphrase change in **PR #39**. Phase 3's gate still needs physical devices |
-| Reminder-editing parity with Due | `docs/plans/due-parity-build-plan.md` | Phases 1–4 built (1–3 merged as #38, Phase 4 in **PR #39**). Phases 5–6 unblocked |
+| Reminder-editing parity with Due | `docs/plans/due-parity-build-plan.md` | Phases 1–5 built (1–3 merged as #38, Phase 4 in **PR #39**, Phase 5/Rounds on `claude/due-parity-phase-5-rounds-ci1bpn`). Phase 6 unblocked |
 
 ### Start here, whatever you were asked to do
 
@@ -24,7 +24,7 @@ build plan for whichever workstream you've been asked to pick up.
 2. **Run `pnpm install` at the repo root, then verify in a clean clone.** A
    partial sandbox install produces phantom `TS2307: Cannot find module` errors
    that are not real — *and* hides real errors, silently. See the gotchas
-   section. Baseline is **347 tests**:
+   section. Baseline is **367 tests**:
    `pnpm -r typecheck && pnpm -r lint && pnpm -r test`.
 3. **Then read the plan for your workstream.** Both are self-contained and their
    section numbers are cited from code comments.
@@ -52,11 +52,16 @@ after all, are in `docs/plans/due-parity-build-plan.md` §9.4.
 Go straight to its plan — it is self-contained, and its §1 explains how to
 regenerate the reference frames from the recording on branch `Vid`.
 
-Phases 1–4 are built: the derived-label engine (`packages/core/src/describe.ts`),
+Phases 1–5 are built: the derived-label engine (`packages/core/src/describe.ts`),
 nag presets with live fire-time previews, progressive disclosure in both editors,
-and the pre-alarm lead time. Phases 5 (intra-day recurrence) and 6 (categories)
-are specified and now unblocked — both add `Task` fields, which the format change
-above made routine.
+the pre-alarm lead time, and Rounds (intra-day recurrence, plan §3.4). Phase 6
+(categories) is specified and unblocked — it adds `Task` fields too, which the
+format change above made routine.
+
+Rounds' AutoComplete is deliberately unbuilt for its "fire when the previous
+one is marked done" mode — see the build plan's Phase 5 entry in §6 and its
+§9.3 point 4. Only the schedule-based mode shipped; there's no toggle in
+either editor for the other one.
 
 Two things to know before touching this:
 
@@ -327,16 +332,16 @@ pnpm install
 pnpm -r typecheck && pnpm -r lint && pnpm -r test
 ```
 
-Current baseline — **347 tests**, all passing (was 192 before Phase 3):
+Current baseline — **367 tests**, all passing (was 347 before Phase 5/Rounds):
 
 | Package | Tests |
 | --- | --- |
-| `packages/core` | 156 |
-| `packages/crypto` | 101 |
+| `packages/core` | 194 |
+| `packages/crypto` | 109 |
 | `packages/portable-sync` | 25 |
 | `services/nag-ai` | 14 |
 | `packages/supabase` | 10 |
-| `apps/web` | 14 |
+| `apps/web` | 15 |
 
 `packages/ui` and `apps/mobile` have no tests yet — the mobile file-sync logic
 is deliberately thin glue over `portable-sync`, which is where it is tested.

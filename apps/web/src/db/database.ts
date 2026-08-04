@@ -94,6 +94,26 @@ function normalizeStoredTask(raw: unknown): Task | null {
       t.leadTimeSeconds > 0
         ? t.leadTimeSeconds
         : null,
+    // Absent on anything written before Rounds shipped; null is "off",
+    // which is the correct reading of a task that never had one configured.
+    roundsIntervalSeconds:
+      typeof t.roundsIntervalSeconds === "number" &&
+      Number.isInteger(t.roundsIntervalSeconds) &&
+      t.roundsIntervalSeconds > 0
+        ? t.roundsIntervalSeconds
+        : null,
+    roundsMaxCount:
+      typeof t.roundsMaxCount === "number" &&
+      Number.isInteger(t.roundsMaxCount) &&
+      t.roundsMaxCount > 0
+        ? t.roundsMaxCount
+        : null,
+    roundsDurationSeconds:
+      typeof t.roundsDurationSeconds === "number" &&
+      Number.isInteger(t.roundsDurationSeconds) &&
+      t.roundsDurationSeconds > 0
+        ? t.roundsDurationSeconds
+        : null,
   };
 }
 
@@ -133,6 +153,12 @@ export interface NewTaskInput {
   priority?: number;
   /** Seconds of heads-up before the fire time, or null for none. */
   leadTimeSeconds?: number | null;
+  /** Rounds' interval (plan §3.4), or null/absent for off. */
+  roundsIntervalSeconds?: number | null;
+  /** Rounds' cap, "Count" mode. Mutually exclusive with `roundsDurationSeconds`. */
+  roundsMaxCount?: number | null;
+  /** Rounds' cap, "Duration" mode. Mutually exclusive with `roundsMaxCount`. */
+  roundsDurationSeconds?: number | null;
 }
 
 /**
@@ -171,6 +197,9 @@ export async function createTask(input: NewTaskInput): Promise<Task> {
     deletedAt: null,
     snoozeCount: 0,
     leadTimeSeconds: input.leadTimeSeconds ?? null,
+    roundsIntervalSeconds: input.roundsIntervalSeconds ?? null,
+    roundsMaxCount: input.roundsMaxCount ?? null,
+    roundsDurationSeconds: input.roundsDurationSeconds ?? null,
   };
 
   const tasks = readAll();
@@ -256,6 +285,12 @@ export interface TaskPatch {
   repeatRule?: string | null;
   /** A positive number sets the pre-alarm; null turns it off. */
   leadTimeSeconds?: number | null;
+  /** Rounds' interval (plan §3.4); null turns Rounds off. */
+  roundsIntervalSeconds?: number | null;
+  /** Rounds' cap, "Count" mode; null (with the other cap also null) means no cap set. */
+  roundsMaxCount?: number | null;
+  /** Rounds' cap, "Duration" mode. */
+  roundsDurationSeconds?: number | null;
 }
 
 /**
@@ -310,6 +345,30 @@ export async function updateTask(
       Number.isInteger(patch.leadTimeSeconds) &&
       patch.leadTimeSeconds > 0
         ? patch.leadTimeSeconds
+        : null;
+  }
+  if (patch.roundsIntervalSeconds !== undefined) {
+    task.roundsIntervalSeconds =
+      patch.roundsIntervalSeconds != null &&
+      Number.isInteger(patch.roundsIntervalSeconds) &&
+      patch.roundsIntervalSeconds > 0
+        ? patch.roundsIntervalSeconds
+        : null;
+  }
+  if (patch.roundsMaxCount !== undefined) {
+    task.roundsMaxCount =
+      patch.roundsMaxCount != null &&
+      Number.isInteger(patch.roundsMaxCount) &&
+      patch.roundsMaxCount > 0
+        ? patch.roundsMaxCount
+        : null;
+  }
+  if (patch.roundsDurationSeconds !== undefined) {
+    task.roundsDurationSeconds =
+      patch.roundsDurationSeconds != null &&
+      Number.isInteger(patch.roundsDurationSeconds) &&
+      patch.roundsDurationSeconds > 0
+        ? patch.roundsDurationSeconds
         : null;
   }
   task.updatedAt = new Date().toISOString();
