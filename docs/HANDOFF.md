@@ -7,27 +7,47 @@ build plan for whichever workstream you've been asked to pick up.
 
 | Workstream | Plan | State |
 | --- | --- | --- |
-| Encrypted portable sync | `docs/plans/portable-sync-build-plan.md` | Phases 1–3 built and **merged** (#35, #36); Phase 3's gate needs physical devices |
-| Reminder-editing parity with Due | `docs/plans/due-parity-build-plan.md` | Phases 1–3 built, **PR #38 open and green**; Phase 4 needs a go-ahead |
+| Encrypted portable sync | `docs/plans/portable-sync-build-plan.md` | Phases 1–3 **merged** (#35, #36). §7 recovery sheet + passphrase change in **PR #39**. Phase 3's gate still needs physical devices |
+| Reminder-editing parity with Due | `docs/plans/due-parity-build-plan.md` | Phases 1–3 **merged** (#38). Phase 4 written but **blocked on a format decision** — see below |
+
+### Start here, whatever you were asked to do
+
+1. **Is `main` green?** Run `pnpm -r typecheck && pnpm -r lint && pnpm -r test`
+   before touching anything. It has been red before: #37 and #38 each passed CI
+   alone and broke on merge, because a Dependabot typings bump tightened
+   `BufferSource` under code written against the older types. Branch-level CI
+   cannot see that class of failure, so check rather than assume. Baseline is
+   **320 tests**.
+2. **Run `pnpm install` at the repo root.** A partial sandbox install produces
+   phantom `TS2307: Cannot find module` errors that are not real.
+3. **Then read the plan for your workstream.** Both are self-contained and their
+   section numbers are cited from code comments.
+
+### The one decision blocking the most work
+
+Adding **any** new field to `Task` collides with the BDGR1 encrypted format.
+`canonical.ts` serialises with a fixed key list and `parseNdjson` rejects a row
+missing any of them — so adding a key makes existing vaults unreadable, while
+omitting it makes encrypted file sync silently disagree with Supabase sync.
+
+This blocks Due-parity Phases 4, 5 and 6, all of which add fields. The full
+analysis and three candidate fixes are in the Due-parity plan's Phase 4 section.
+The Phase 4 implementation itself is finished and **stashed on the branch**
+(`git stash list`) pending the decision — it is a stash pop plus a two-line
+`canonical.ts` change once someone picks a direction.
+
+Do not decide this unilaterally. It touches persisted, encrypted user data, and
+`canonical.ts`'s own header points at a different answer than the one the
+analysis recommends.
 
 ### Picking up the Due-parity work
 
 Go straight to its plan — it is self-contained, and its §1 explains how to
 regenerate the reference frames from the recording on branch `Vid`.
 
-Phases 1–3 are done: the derived-label engine (`packages/core/src/describe.ts`),
+Phases 1–3 are merged: the derived-label engine (`packages/core/src/describe.ts`),
 nag presets with live fire-time previews, and progressive disclosure in both
-editors.
-
-**Phase 4 is written but blocked, and the blocker is bigger than Phase 4.**
-Adding *any* field to `Task` collides with the BDGR1 encrypted format:
-`canonical.ts` uses a fixed key list and `parseNdjson` rejects a row missing any
-of them, so adding a key makes existing vaults unreadable while omitting it
-makes encrypted file sync silently disagree with Supabase sync. The two
-workstreams in this table are not as independent as they look. The full analysis
-and three candidate fixes are in the Due-parity plan's Phase 4 section; the
-implementation is stashed on the branch (`git stash list`) pending that
-decision.
+editors. Phase 4 onward is blocked by the format decision above.
 
 Two things to know before touching this:
 
@@ -41,7 +61,21 @@ Two things to know before touching this:
   Mobile parity currently rests on typecheck plus the shared-source guard in
   `apps/web/src/labelParity.test.ts`, not on anyone having looked at it.
 
-### Encrypted portable sync
+### Picking up the encrypted-sync work
+
+Phases 1–3 are merged and Phase 3's gate still needs physical devices — the
+checklist is at the bottom of this file.
+
+**PR #39 adds the §7 recovery paths** and is the most recent work: a recovery
+sheet (Crockford base32 with a checksum, deviating from the plan's base64 for
+transcription reasons recorded in `recovery.ts`), unlocking with that code, and
+passphrase change by re-wrapping the data key. Before it, forgetting a
+passphrase meant permanently unreadable snapshots.
+
+Two API shapes there are deliberate and worth not "simplifying":
+`unlockVaultRecord` exists so rotating a passphrase does not demand a snapshot
+file, and `changeWebVaultPassphrase` takes the passphrase rather than the live
+vault because the web key is non-extractable by design.
 
 Everything below this line is the encrypted-sync workstream.
 
@@ -258,16 +292,16 @@ pnpm install
 pnpm -r typecheck && pnpm -r lint && pnpm -r test
 ```
 
-Current baseline — **243 tests**, all passing (was 192 before Phase 3):
+Current baseline — **320 tests**, all passing (was 192 before Phase 3):
 
 | Package | Tests |
 | --- | --- |
-| `packages/core` | 121 |
-| `packages/crypto` | 66 |
+| `packages/core` | 156 |
+| `packages/crypto` | 101 |
 | `packages/portable-sync` | 25 |
 | `services/nag-ai` | 14 |
 | `packages/supabase` | 10 |
-| `apps/web` | 7 |
+| `apps/web` | 14 |
 
 `packages/ui` and `apps/mobile` have no tests yet — the mobile file-sync logic
 is deliberately thin glue over `portable-sync`, which is where it is tested.
