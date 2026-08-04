@@ -11,7 +11,12 @@ import {
 } from "@alarmed/portable-sync";
 
 import { localTaskStore } from "../db/database";
-import { loadVault, secureSeqStore, unlockDeviceVault } from "../crypto/keystore";
+import {
+  loadVault,
+  recoverDeviceVault,
+  secureSeqStore,
+  unlockDeviceVault,
+} from "../crypto/keystore";
 import { expoRandomAsync } from "../crypto/random";
 
 /**
@@ -121,6 +126,26 @@ export async function joinVaultFromFile(passphrase: string): Promise<ImportOutco
 
   const text = await new File(picked.assets[0].uri).text();
   await unlockDeviceVault(passphrase, dearmor(text));
+
+  return { status: "merged", ...(await importSnapshotText(await context(), text)) };
+}
+
+/**
+ * The passphrase is gone: recover with the sheet plus any snapshot from the
+ * vault (plan §7). The snapshot isn't optional — a recovery code carries no
+ * proof of which vault it belongs to, so there must be something to verify it
+ * against.
+ */
+export async function recoverVaultFromFile(code: string): Promise<ImportOutcome> {
+  const picked = await DocumentPicker.getDocumentAsync({
+    type: "*/*",
+    copyToCacheDirectory: true,
+    multiple: false,
+  });
+  if (picked.canceled || picked.assets.length === 0) return { status: "cancelled" };
+
+  const text = await new File(picked.assets[0].uri).text();
+  await recoverDeviceVault(code, dearmor(text));
 
   return { status: "merged", ...(await importSnapshotText(await context(), text)) };
 }

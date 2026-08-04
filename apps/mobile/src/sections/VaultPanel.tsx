@@ -12,14 +12,17 @@ import { isRollbackRejection } from "@alarmed/portable-sync";
 
 import { Icon } from "../ui/Icon";
 import {
+  changeDevicePassphrase,
   clearDeviceVault,
   createDeviceVault,
   isVaultConfigured,
+  showRecoveryCode,
 } from "../crypto/keystore";
 import {
   exportToShareSheet,
   importFromDocumentPicker,
   joinVaultFromFile,
+  recoverVaultFromFile,
 } from "../sync/portableFile";
 
 /**
@@ -31,7 +34,17 @@ import {
  * with the panel rather than live in the app's long-lived settings tree.
  */
 
-type Busy = "none" | "creating" | "exporting" | "importing" | "joining";
+type Busy =
+  | "none"
+  | "creating"
+  | "exporting"
+  | "importing"
+  | "joining"
+  | "recovering"
+  | "revealing"
+  | "rotating";
+
+type Sheet = "none" | "recovery" | "rotate" | "restore";
 
 export function VaultPanel() {
   const [configured, setConfigured] = useState<boolean | null>(null);
@@ -45,6 +58,17 @@ export function VaultPanel() {
    * file" would let the one message that must never be missed look routine.
    */
   const [securityAlert, setSecurityAlert] = useState<string | null>(null);
+
+  /** Only one secondary flow open at a time, so the panel stays readable. */
+  const [sheet, setSheet] = useState<Sheet>("none");
+  const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
+  const [newPassphrase, setNewPassphrase] = useState("");
+  /**
+   * Creating a vault is gated on this (plan §7). A checkbox is a low bar, but
+   * it is the difference between "nobody told me" and "I was told" — and there
+   * is genuinely no recovery to offer afterwards.
+   */
+  const [acknowledged, setAcknowledged] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -113,10 +137,45 @@ export function VaultPanel() {
       return `Merged ${result.applied} task${result.applied === 1 ? "" : "s"}.${ahead}`;
     });
 
+  const onReveal = () =>
+    run("revealing", async () => {
+      setRecoveryCode(await showRecoveryCode(passphrase));
+      setPassphrase("");
+      return null;
+    });
+
+  const onRotate = () =>
+    run("rotating", async () => {
+      await changeDevicePassphrase(passphrase, newPassphrase);
+      setPassphrase("");
+      setNewPassphrase("");
+      setSheet("none");
+      return "Passphrase changed. Export a fresh snapshot so your other devices get the new one — older files still need the old passphrase.";
+    });
+
+  const onRestore = () =>
+    run("recovering", async () => {
+      const result = await recoverVaultFromFile(passphrase);
+      if (result.status === "cancelled") return null;
+      setPassphrase("");
+      setSheet("none");
+      setConfigured(true);
+      return `Recovered the vault and merged ${result.applied} task${result.applied === 1 ? "" : "s"}.`;
+    });
+
+  const closeSheet = () => {
+    setSheet("none");
+    setRecoveryCode(null);
+    setPassphrase("");
+    setNewPassphrase("");
+  };
+
   const onForget = () =>
     run("creating", async () => {
       await clearDeviceVault();
       setConfigured(false);
+      setSheet("none");
+      setRecoveryCode(null);
       return "Vault forgotten on this device. Your tasks are untouched.";
     });
 
@@ -170,6 +229,142 @@ export function VaultPanel() {
               </Text>
             </Pressable>
           </View>
+          <View style={styles.row}>
+            <Pressable
+              style={({ pressed }) => [styles.btn, pressed && styles.pressed]}
+              disabled={working}
+              onPress={() => {
+                setSheet(sheet === "recovery" ? "none" : "recovery");
+                setRecoveryCode(null);
+              }}
+            >
+              <Icon name="lock" size={15} color={colors.textPrimary} />
+              <Text style={styles.btnText}>Recovery sheet</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.btn, pressed && styles.pressed]}
+              disabled={working}
+              onPress={() => setSheet(sheet === "rotate" ? "none" : "rotate")}
+            >
+              <Icon name="repeat" size={15} color={colors.textPrimary} />
+              <Text style={styles.btnText}>Passphrase</Text>
+            </Pressable>
+          </View>
+
+          {sheet === "recovery" ? (
+            <View style={styles.sub}>
+              {recoveryCode === null ? (
+                <>
+                  <Text style={styles.desc}>
+                    Your recovery sheet is the only way back in if you forget your
+                    passphrase. Seeing it costs an unlock, so a phone left open on a table
+                    can't give it away.
+                  </Text>
+                  <TextInput
+                    style={styles.input}
+                    value={passphrase}
+                    onChangeText={setPassphrase}
+                    placeholder="Current passphrase"
+                    placeholderTextColor={colors.textSecondary}
+                    secureTextEntry
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <View style={styles.row}>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.btn,
+                        styles.btnAccent,
+                        passphrase.length === 0 && styles.btnOff,
+                        pressed && styles.pressed,
+                      ]}
+                      disabled={working || passphrase.length === 0}
+                      onPress={onReveal}
+                    >
+                      <Text style={[styles.btnText, styles.btnTextAccent]}>
+                        {busy === "revealing" ? "Unlocking…" : "Show my code"}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [styles.btn, pressed && styles.pressed]}
+                      onPress={closeSheet}
+                    >
+                      <Text style={styles.btnText}>Cancel</Text>
+                    </Pressable>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.code} selectable>
+                    {recoveryCode}
+                  </Text>
+                  <Text style={styles.desc}>
+                    Write this on paper and keep it with your important documents. It
+                    stays valid even after you change your passphrase. Anyone holding both
+                    this and one of your snapshot files can read your tasks.
+                  </Text>
+                  <Pressable
+                    style={({ pressed }) => [styles.btn, pressed && styles.pressed]}
+                    onPress={closeSheet}
+                  >
+                    <Text style={styles.btnText}>Done</Text>
+                  </Pressable>
+                </>
+              )}
+            </View>
+          ) : null}
+
+          {sheet === "rotate" ? (
+            <View style={styles.sub}>
+              <Text style={styles.desc}>
+                Changing your passphrase re-wraps the key — your tasks aren't re-encrypted
+                and your recovery sheet stays valid.
+              </Text>
+              <TextInput
+                style={styles.input}
+                value={passphrase}
+                onChangeText={setPassphrase}
+                placeholder="Current passphrase"
+                placeholderTextColor={colors.textSecondary}
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <TextInput
+                style={styles.input}
+                value={newPassphrase}
+                onChangeText={setNewPassphrase}
+                placeholder="New passphrase"
+                placeholderTextColor={colors.textSecondary}
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <View style={styles.row}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.btn,
+                    styles.btnAccent,
+                    (passphrase.length === 0 || newPassphrase.length === 0) && styles.btnOff,
+                    pressed && styles.pressed,
+                  ]}
+                  disabled={working || passphrase.length === 0 || newPassphrase.length === 0}
+                  onPress={onRotate}
+                >
+                  <Text style={[styles.btnText, styles.btnTextAccent]}>
+                    {busy === "rotating" ? "Re-wrapping…" : "Change it"}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [styles.btn, pressed && styles.pressed]}
+                  onPress={closeSheet}
+                >
+                  <Text style={styles.btnText}>Cancel</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+
           <Pressable
             style={({ pressed }) => [styles.forgetBtn, pressed && styles.pressed]}
             disabled={working}
@@ -195,15 +390,29 @@ export function VaultPanel() {
             autoCapitalize="none"
             autoCorrect={false}
           />
+          <Pressable
+            style={styles.ack}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: acknowledged }}
+            onPress={() => setAcknowledged((on) => !on)}
+          >
+            <View style={[styles.ackBox, acknowledged && styles.ackBoxOn]}>
+              {acknowledged ? <Icon name="check" size={12} color={colors.onAccent} /> : null}
+            </View>
+            <Text style={styles.ackText}>
+              I understand that if I forget this passphrase and lose my recovery sheet, my
+              snapshots cannot be recovered by anyone.
+            </Text>
+          </Pressable>
           <View style={styles.row}>
             <Pressable
               style={({ pressed }) => [
                 styles.btn,
                 styles.btnAccent,
-                passphrase.length === 0 && styles.btnOff,
+                (passphrase.length === 0 || !acknowledged) && styles.btnOff,
                 pressed && styles.pressed,
               ]}
-              disabled={working || passphrase.length === 0}
+              disabled={working || passphrase.length === 0 || !acknowledged}
               onPress={onCreate}
             >
               <Icon name="lock" size={15} color={colors.onAccent} />
@@ -230,6 +439,58 @@ export function VaultPanel() {
             Creating a vault takes a second or two — that slowness is the point, it's
             what makes guessing the passphrase expensive.
           </Text>
+
+          <Pressable
+            style={({ pressed }) => [styles.forgetBtn, pressed && styles.pressed]}
+            disabled={working}
+            onPress={() => setSheet(sheet === "restore" ? "none" : "restore")}
+          >
+            <Text style={styles.recoverLink}>
+              Forgotten your passphrase? Recover with your sheet
+            </Text>
+          </Pressable>
+
+          {sheet === "restore" ? (
+            <View style={styles.sub}>
+              <Text style={styles.desc}>
+                Type the code from your recovery sheet, then pick any snapshot file from
+                the vault. Case and dashes don't matter.
+              </Text>
+              <TextInput
+                style={[styles.input, styles.codeInput]}
+                value={passphrase}
+                onChangeText={setPassphrase}
+                placeholder="XXXX-XXXX-XXXX-…"
+                placeholderTextColor={colors.textSecondary}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                spellCheck={false}
+              />
+              <View style={styles.row}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.btn,
+                    styles.btnAccent,
+                    passphrase.length === 0 && styles.btnOff,
+                    pressed && styles.pressed,
+                  ]}
+                  disabled={working || passphrase.length === 0}
+                  onPress={onRestore}
+                >
+                  <Icon name="inbox" size={15} color={colors.onAccent} />
+                  <Text style={[styles.btnText, styles.btnTextAccent]}>
+                    {busy === "recovering" ? "Recovering…" : "Pick a snapshot"}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [styles.btn, pressed && styles.pressed]}
+                  onPress={closeSheet}
+                >
+                  <Text style={styles.btnText}>Cancel</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
         </>
       )}
 
@@ -310,6 +571,74 @@ const styles = StyleSheet.create({
   forgetText: {
     ...typography.caption,
     color: colors.danger,
+  },
+  sub: {
+    gap: 9,
+    marginTop: 4,
+    padding: 13,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.sm,
+    backgroundColor: colors.surfaceRaised,
+  },
+  /*
+   * The code itself. Monospace and loosely spaced because it gets copied onto
+   * paper by hand — the reader has to keep their place across 56 characters.
+   */
+  code: {
+    fontFamily: "Courier",
+    fontSize: 15,
+    fontWeight: "700",
+    lineHeight: 28,
+    letterSpacing: 0.6,
+    color: colors.textPrimary,
+    backgroundColor: colors.background,
+    borderWidth: 2,
+    borderColor: colors.accent,
+    borderRadius: radii.sm,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  codeInput: {
+    fontFamily: "Courier",
+    letterSpacing: 0.5,
+  },
+  /* The no-recovery acknowledgement. Not styled to be skimmed past. */
+  ack: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 9,
+    padding: 11,
+    borderWidth: 1,
+    borderColor: colors.danger,
+    borderRadius: radii.sm,
+    backgroundColor: colors.dangerSoft,
+  },
+  ackBox: {
+    width: 18,
+    height: 18,
+    marginTop: 1,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: colors.danger,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ackBoxOn: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  ackText: {
+    ...typography.caption,
+    flex: 1,
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: colors.textPrimary,
+  },
+  recoverLink: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    textDecorationLine: "underline",
   },
   status: {
     ...typography.caption,

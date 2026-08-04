@@ -1,6 +1,9 @@
 import {
+  changeWebVaultPassphrase,
   createWebVault,
+  recoverWebVault,
   resumeWebVault,
+  revealRecoveryCode,
   unlockWebVault,
   type VaultRecord,
   type WebVault,
@@ -160,6 +163,33 @@ export async function unlockDeviceVault(
   blob: Uint8Array
 ): Promise<WebVault> {
   return persist(await unlockWebVault(subtle(), passphrase, blob));
+}
+
+/** Joins a vault using the recovery sheet instead of the passphrase (plan §7). */
+export async function recoverDeviceVault(
+  code: string,
+  blob: Uint8Array
+): Promise<WebVault> {
+  return persist(await recoverWebVault(subtle(), blob, code));
+}
+
+/** Rotates the passphrase, using the record already in IndexedDB. No file needed. */
+export async function changeDevicePassphrase(
+  currentPassphrase: string,
+  newPassphrase: string
+): Promise<WebVault> {
+  const vault = await loadVault();
+  if (!vault) throw new Error("No vault on this device");
+  return persist(
+    await changeWebVaultPassphrase(subtle(), vault.record, currentPassphrase, newPassphrase)
+  );
+}
+
+/** The recovery code, which costs a real unlock to see. */
+export async function showRecoveryCode(passphrase: string): Promise<string> {
+  const vault = await loadVault();
+  if (!vault) throw new Error("No vault on this device");
+  return revealRecoveryCode(passphrase, vault.record);
 }
 
 /** Forgets the key and the sequence mark together — see the mobile keystore for why. */

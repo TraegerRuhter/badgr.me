@@ -50,10 +50,53 @@ reliable local notifications.
 
 ## Running it
 
+Two different jobs, two different answers. Pick by what you're trying to find out.
+
+### Just looking at the UI — Expo Go, about five minutes
+
 ```
-pnpm --filter @alarmed/mobile start      # Metro dev server
+pnpm install
+pnpm --filter @alarmed/mobile start      # Metro dev server, prints a QR code
+```
+
+Scan the QR with the iPhone Camera app, or with Expo Go on Android. Phone and
+computer need to be on the same network; add `--tunnel` if they aren't.
+
+Good enough for anything that is layout, copy, or state — the editor, the nag
+presets, the vault panel. Not good enough for the thing below.
+
+### Testing the nag properly — a real build
+
+**Expo Go can't prove the nag.** The whole promise is that notifications keep
+firing after the app is force-closed, and in Expo Go they are scheduled under
+Expo Go's own identity, so what you learn there doesn't transfer. Per the spec's
+no-Mac pipeline (§7), use EAS:
+
+```
+cd apps/mobile
+eas build:configure                          # first time only
+eas build --platform android --profile preview   # APK — easiest path
+eas build --platform ios --profile preview       # IPA, install via AltStore
+```
+
+**Start with Android if you have one.** The preview profile builds a plain APK
+you can install directly, with no signing gatekeeping. iOS needs Apple
+credentials even for internal distribution; AltStore then re-signs with a free
+Apple ID, which works but is several more steps for the same answer.
+
+```
 pnpm --filter @alarmed/mobile typecheck  # tsc --noEmit
 ```
+
+### What can't be done here
+
+The mobile UI **cannot be rendered in CI or in a sandbox**. `expo export
+--platform web` gets as far as bundling once `wasm` is added to
+`config.resolver.assetExts` in `metro.config.js`, but `expo-sqlite`'s web worker
+never creates the schema, so the app boots to an empty list and the editor is
+unreachable. Mobile parity therefore rests on typecheck plus the shared-source
+guard in `apps/web/src/labelParity.test.ts` — not on anyone having looked at it.
+If you change mobile UI, put it on a device before you trust it.
 
 To enable AI-rewritten snooze copy, point the app at a running
 `services/nag-ai` instance (see its README) via Expo's client-readable env

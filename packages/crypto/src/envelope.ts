@@ -183,20 +183,35 @@ export function createVault(passphrase: string, opts: CreateVaultOptions = {}): 
  * This is the expensive call — do it once per unlock and cache the result.
  */
 export function unlockVault(passphrase: string, blob: Uint8Array): VaultKeys {
-  const h = decodeHeader(blob);
-  const kek = deriveKek(deriveMasterKey(passphrase, h.kdfSalt, h.kdf), h.kdfSalt);
+  return unlockVaultRecord(passphrase, decodeHeader(blob));
+}
+
+/**
+ * The same unlock, from a stored vault record rather than a snapshot.
+ *
+ * Everything the unwrap needs — id, salt, KDF parameters, wrap nonce, wrapped
+ * key — is non-secret and already sits in each client's keystore. Working from
+ * the record means changing a passphrase or revealing the recovery sheet does
+ * not make the user go and find a snapshot file first, which would be a strange
+ * thing to demand for an operation about the vault itself.
+ */
+export function unlockVaultRecord(passphrase: string, record: VaultRecord): VaultKeys {
+  const kek = deriveKek(
+    deriveMasterKey(passphrase, record.kdfSalt, record.kdf),
+    record.kdfSalt
+  );
   let dataKey: Uint8Array;
   try {
-    dataKey = unwrapDataKey(kek, h.wrapNonce, h.wrappedDataKey, h.vaultId);
+    dataKey = unwrapDataKey(kek, record.wrapNonce, record.wrappedDataKey, record.vaultId);
   } catch {
     throw new Error("Wrong passphrase, or the vault header has been tampered with");
   }
   return {
-    vaultId: h.vaultId,
-    kdfSalt: h.kdfSalt,
-    kdf: h.kdf,
-    wrapNonce: h.wrapNonce,
-    wrappedDataKey: h.wrappedDataKey,
+    vaultId: record.vaultId,
+    kdfSalt: record.kdfSalt,
+    kdf: record.kdf,
+    wrapNonce: record.wrapNonce,
+    wrappedDataKey: record.wrappedDataKey,
     dataKey,
   };
 }
@@ -290,8 +305,8 @@ export function recoveryCodeFor(vault: VaultKeys): string {
  * the sheet always costs a real unlock. A device left unlocked on a table
  * should not hand over the one credential that never expires.
  */
-export function revealRecoveryCode(passphrase: string, blob: Uint8Array): string {
-  const vault = unlockVault(passphrase, blob);
+export function revealRecoveryCode(passphrase: string, record: VaultRecord): string {
+  const vault = unlockVaultRecord(passphrase, record);
   try {
     return recoveryCodeFor(vault);
   } finally {

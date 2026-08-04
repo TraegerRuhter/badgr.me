@@ -11,6 +11,7 @@ import {
   createVault,
   toVaultRecord,
   unlockVault,
+  unlockVaultRecord,
   unlockWithRecoveryCode,
   type CreateVaultOptions,
   type VaultRecord,
@@ -98,20 +99,20 @@ export async function recoverWebVault(
 /**
  * Changes the passphrase on the web.
  *
- * Takes the *current* passphrase and an existing snapshot rather than a stored
+ * Takes the current passphrase and the stored vault record, not the live
  * `WebVault`, and that is not an oversight. The stored web key is deliberately
  * non-extractable, so its bytes cannot be read back to re-wrap them — the data
- * key has to be re-derived from something the user supplies. Which is the right
- * shape anyway: changing a passphrase should require proving you know the old
- * one, not merely holding an unlocked session.
+ * key has to be re-derived from the passphrase. Which is the right shape
+ * anyway: rotating a passphrase should require proving you know the old one,
+ * not merely holding an unlocked session.
  */
 export async function changeWebVaultPassphrase(
   subtle: SubtleCryptoLike,
-  blob: Uint8Array,
+  record: VaultRecord,
   currentPassphrase: string,
   newPassphrase: string
 ): Promise<WebVault> {
-  const current = unlockVault(currentPassphrase, blob);
+  const current = unlockVaultRecord(currentPassphrase, record);
   const rotated = changePassphrase(current, newPassphrase);
   try {
     const key = await importDataKey(subtle, rotated.dataKey);

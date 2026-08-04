@@ -199,6 +199,37 @@ try {
     }
   }
 
+  // Vault panel: the recovery work (portable-sync plan §7). Close whatever the
+  // editor left open first — an open drawer swallows clicks aimed behind it.
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(400);
+
+  const settingsBtn = page.getByRole("button", { name: "Settings" });
+  if (await settingsBtn.count()) {
+    await settingsBtn.first().click();
+    await page.waitForTimeout(400);
+    const all = page.getByText("All settings", { exact: false });
+    if (await all.count()) {
+      await all.first().click();
+      await page.waitForTimeout(500);
+      const drawer = page.locator("aside.drawer");
+      await drawer.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      await page.waitForTimeout(400);
+      await shoot(page, "09-vault-setup", "vault setup — no-recovery acknowledgement");
+
+      const recoverLink = page.getByText("Forgotten your passphrase", { exact: false });
+      if (await recoverLink.count()) {
+        await recoverLink.first().click();
+        await page.waitForTimeout(350);
+        await drawer.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+        await page.waitForTimeout(350);
+        await shoot(page, "10-vault-recover", "recover with the sheet");
+      }
+    }
+  }
+
   if (errors.length) {
     console.log(`\n  ${errors.length} console error(s):`);
     for (const e of errors.slice(0, 5)) console.log(`   ! ${e.slice(0, 160)}`);
