@@ -86,6 +86,14 @@ function normalizeStoredTask(raw: unknown): Task | null {
       t.snoozeCount >= 0
         ? t.snoozeCount
         : 0,
+    // Absent on anything written before the pre-alarm shipped; null is "no
+    // heads-up", which is the correct reading of a task that never had one.
+    leadTimeSeconds:
+      typeof t.leadTimeSeconds === "number" &&
+      Number.isInteger(t.leadTimeSeconds) &&
+      t.leadTimeSeconds > 0
+        ? t.leadTimeSeconds
+        : null,
   };
 }
 
@@ -123,6 +131,8 @@ export interface NewTaskInput {
   escalationMode?: EscalationMode;
   repeatRule?: string | null;
   priority?: number;
+  /** Seconds of heads-up before the fire time, or null for none. */
+  leadTimeSeconds?: number | null;
 }
 
 /**
@@ -160,6 +170,7 @@ export async function createTask(input: NewTaskInput): Promise<Task> {
     deviceOrigin: "web",
     deletedAt: null,
     snoozeCount: 0,
+    leadTimeSeconds: input.leadTimeSeconds ?? null,
   };
 
   const tasks = readAll();
@@ -243,6 +254,8 @@ export interface TaskPatch {
   escalationMode?: EscalationMode;
   /** A RepeatRule string sets it; null/"" clears it (one-off task again). */
   repeatRule?: string | null;
+  /** A positive number sets the pre-alarm; null turns it off. */
+  leadTimeSeconds?: number | null;
 }
 
 /**
@@ -290,6 +303,14 @@ export async function updateTask(
   }
   if (patch.repeatRule !== undefined) {
     task.repeatRule = isRepeatRule(patch.repeatRule) ? patch.repeatRule : null;
+  }
+  if (patch.leadTimeSeconds !== undefined) {
+    task.leadTimeSeconds =
+      patch.leadTimeSeconds != null &&
+      Number.isInteger(patch.leadTimeSeconds) &&
+      patch.leadTimeSeconds > 0
+        ? patch.leadTimeSeconds
+        : null;
   }
   task.updatedAt = new Date().toISOString();
   writeAll(tasks);

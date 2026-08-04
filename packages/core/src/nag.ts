@@ -90,11 +90,20 @@ export interface SchedulableTask {
   priority?: number;
   /** Times this task has been snoozed; consumed against `nagMaxCount` so snoozing can't reset the cap. */
   snoozeCount?: number;
+  /** Seconds of heads-up before the first fire, or null/0 for none. */
+  leadTimeSeconds?: number | null;
 }
 
 export interface ScheduledBurst {
   taskId: string;
   fireTimes: Date[];
+  /**
+   * The pre-alarm heads-up, when one is configured, still in the future, and
+   * the budget stretched to it. Separate from `fireTimes` because it is not
+   * part of the nag sequence: it fires *before* the task is due and must not
+   * count against `nagMaxCount`.
+   */
+  preAlarm?: Date;
 }
 
 /**
@@ -140,9 +149,24 @@ export function allocateNotificationBudget(
       priorOccurrences: task.snoozeCount ?? 0,
       now,
     });
-
-    results.push({ taskId: task.id, fireTimes });
     remaining -= fireTimes.length;
+
+    /*
+     * The pre-alarm is allocated *after* the burst, deliberately. With one slot
+     * left, the notification at the actual fire time is worth more than the
+     * heads-up before it — a task that buzzes on time beats one that only warns
+     * you it is coming. Charged against the same budget so U6 holds.
+     */
+    const lead = task.leadTimeSeconds ?? 0;
+    const preAlarmAt =
+      lead > 0 ? new Date(task.fireAt.getTime() - lead * 1000) : null;
+    const preAlarm =
+      preAlarmAt !== null && preAlarmAt.getTime() >= now.getTime() && remaining > 0
+        ? preAlarmAt
+        : undefined;
+    if (preAlarm) remaining -= 1;
+
+    results.push({ taskId: task.id, fireTimes, preAlarm });
   }
 
   return results;

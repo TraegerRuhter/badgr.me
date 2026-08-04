@@ -23,6 +23,14 @@ export interface Task {
   deletedAt: string | null;
   /** Times this task's nag has been snoozed; drives escalating copy and (with "shrink") interval. */
   snoozeCount: number;
+  /**
+   * Heads-up before the first fire, in seconds. Null means no pre-alarm
+   * (docs/plans/due-parity-build-plan.md §3.6).
+   *
+   * Costs a notification slot, so it is accounted for in
+   * `allocateNotificationBudget` — see invariant U6.
+   */
+  leadTimeSeconds: number | null;
 }
 
 /** Mirrors the `nag_events` table (spec §4.2). */

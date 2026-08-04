@@ -6,11 +6,13 @@ import {
   DEFAULT_SETTINGS,
   describeFireTimes,
   describeNagPlan,
+  describeLeadTime,
   describeNagPreset,
   describeRelativeFireTime,
   groupTasksIntoSections,
   isPastDue,
   isRepeatRule,
+  LEAD_TIME_CHOICES,
   matchNagPreset,
   NAG_PRESETS,
   NAG_PACK_LABELS,
@@ -923,6 +925,7 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
   const [intervalSeconds, setIntervalSeconds] = useState(task.nagIntervalSeconds);
   const [maxCount, setMaxCount] = useState<number | null>(task.nagMaxCount);
   const [shrink, setShrink] = useState(task.escalationMode === "shrink");
+  const [leadTime, setLeadTime] = useState<number | null>(task.leadTimeSeconds);
   const [repeat, setRepeat] = useState<RepeatRule | null>(
     isRepeatRule(task.repeatRule) ? task.repeatRule : null
   );
@@ -1004,6 +1007,8 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
       // Shrink is meaningless with a single fire, so "Just once" (badgr's
       // nag-off, plan §9.1) never persists a flag that can't apply.
       escalationMode: shrink && maxCount !== 1 ? "shrink" : "none",
+      // A pre-alarm needs something to precede, so an undated task never keeps one.
+      leadTimeSeconds: dated ? leadTime : null,
       // A repeat needs a date to repeat from — clearing the date clears it too.
       repeatRule: dated ? repeat : null,
     });
@@ -1240,6 +1245,21 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
 
             {dated ? (
               <>
+                <div className="editor-label">Heads-up before</div>
+                <div className="when-row">
+                  {LEAD_TIME_CHOICES.map((choice) => (
+                    <button
+                      key={choice.label}
+                      type="button"
+                      className={`when-chip${leadTime === choice.seconds ? " active" : ""}`}
+                      onClick={() => setLeadTime(choice.seconds)}
+                    >
+                      {choice.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="setting-desc">{describeLeadTime(leadTime)}</p>
+
                 <div className="editor-label">Repeat</div>
                 <div className="when-row">
                   <button

@@ -31,6 +31,7 @@ export interface TaskRow {
   device_origin: string;
   deleted_at: string | null;
   snooze_count: number;
+  lead_time_seconds: number | null;
 }
 
 export function rowToTask(row: TaskRow): Task {
@@ -52,6 +53,8 @@ export function rowToTask(row: TaskRow): Task {
     deviceOrigin: row.device_origin as DeviceOrigin,
     deletedAt: row.deleted_at,
     snoozeCount: row.snooze_count,
+    // Older rows predate the column; PostgREST returns undefined for it.
+    leadTimeSeconds: row.lead_time_seconds ?? null,
   };
 }
 
@@ -74,6 +77,7 @@ export function taskToRow(task: Task): TaskRow {
     device_origin: task.deviceOrigin,
     deleted_at: task.deletedAt,
     snooze_count: task.snoozeCount,
+    lead_time_seconds: task.leadTimeSeconds,
   };
 }
 

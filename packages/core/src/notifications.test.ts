@@ -34,6 +34,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     deviceOrigin: "mobile",
     deletedAt: null,
     snoozeCount: 0,
+    leadTimeSeconds: null,
     ...overrides,
   };
 }
@@ -184,6 +185,7 @@ describe("power circle", () => {
     deviceOrigin: "web",
     deletedAt: null,
     snoozeCount: 0,
+    leadTimeSeconds: null,
   } as const;
   const NOW = new Date("2026-07-08T13:00:00.000Z");
 
@@ -216,6 +218,7 @@ describe("undated tasks", () => {
     fireAt: null, nagIntervalSeconds: 60, nagMaxCount: 5, nagUntil: null,
     escalationMode: "none", completedAt: null, dismissedAt: null, repeatRule: null,
     priority: 0, deviceOrigin: "web", deletedAt: null, snoozeCount: 0,
+    leadTimeSeconds: null,
   } as const;
 
   it("an undated task is not naggable and plans nothing", () => {

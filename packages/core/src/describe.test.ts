@@ -8,6 +8,8 @@ import {
   formatDuration,
   formatInterval,
   isPastDue,
+  describeLeadTime,
+  LEAD_TIME_CHOICES,
   matchNagPreset,
   NAG_PRESETS,
   quickChipLabel,
@@ -246,5 +248,30 @@ describe("describeRelativeFireTime", () => {
 
   it("returns empty for an unparseable input rather than throwing", () => {
     expect(describeRelativeFireTime("nonsense", NOW)).toBe("");
+  });
+});
+
+describe("lead time (plan §3.6)", () => {
+  it("offers Off first, because a pre-alarm costs a notification slot", () => {
+    expect(LEAD_TIME_CHOICES[0].seconds).toBeNull();
+    expect(LEAD_TIME_CHOICES[0].label).toBe("Off");
+  });
+
+  it("describes the chosen lead time in plain language", () => {
+    expect(describeLeadTime(null)).toBe("No heads-up before it's due");
+    expect(describeLeadTime(900)).toBe("Heads-up 15 min before");
+    expect(describeLeadTime(3600)).toBe("Heads-up 1 hr before");
+    expect(describeLeadTime(86400)).toBe("Heads-up 1 day before");
+  });
+
+  it("treats a non-positive lead time as off", () => {
+    expect(describeLeadTime(0)).toBe("No heads-up before it's due");
+  });
+
+  it("labels every choice consistently with formatDuration", () => {
+    for (const choice of LEAD_TIME_CHOICES) {
+      if (choice.seconds == null) continue;
+      expect(choice.label).toBe(formatDuration(choice.seconds));
+    }
   });
 });

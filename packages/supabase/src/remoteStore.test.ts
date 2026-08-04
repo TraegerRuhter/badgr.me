@@ -27,6 +27,7 @@ function makeRow(overrides: Partial<TaskRow> = {}): TaskRow {
     device_origin: "web",
     deleted_at: null,
     snooze_count: 3,
+    lead_time_seconds: null,
     ...overrides,
   };
 }
@@ -46,6 +47,7 @@ describe("row <-> task mapping", () => {
       escalationMode: "shrink",
       deviceOrigin: "web",
       snoozeCount: 3,
+      leadTimeSeconds: null,
       notes: "bring the form",
     });
   });

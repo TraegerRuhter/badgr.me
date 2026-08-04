@@ -22,9 +22,11 @@ import {
   computeNagBurst,
   describeFireTimes,
   describeNagPlan,
+  describeLeadTime,
   describeNagPreset,
   describeRelativeFireTime,
   isPastDue,
+  LEAD_TIME_CHOICES,
   matchNagPreset,
   NAG_PRESETS,
   DEFAULT_SETTINGS,
@@ -778,6 +780,7 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
   const [intervalSeconds, setIntervalSeconds] = useState(task.nagIntervalSeconds);
   const [maxCount, setMaxCount] = useState<number | null>(task.nagMaxCount);
   const [shrink, setShrink] = useState(task.escalationMode === "shrink");
+  const [leadTime, setLeadTime] = useState<number | null>(task.leadTimeSeconds);
   const [repeat, setRepeat] = useState<RepeatRule | null>(
     isRepeatRule(task.repeatRule) ? task.repeatRule : null
   );
@@ -809,8 +812,8 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
       fireAt: pastDue ? new Date() : fireAt,
       nagIntervalSeconds: intervalSeconds,
       nagMaxCount: maxCount,
-      // Shrink can't apply to a single fire, so "Just once" (badgr's nag-off,
-      // plan §9.1) never persists a flag that will never take effect.
+      // Mirrors what save() will persist: shrink can't apply to a single fire,
+      // so "Just once" (badgr's nag-off, plan §9.1) previews without it too.
       escalationMode: shrink && maxCount !== 1 ? "shrink" : "none",
     });
     const when = pastDue ? `${describeRelativeFireTime(fireAt)} — ` : "";
@@ -1059,6 +1062,30 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
             </Pressable>
               {dated ? (
                 <>
+                <Text style={styles.editorLabel}>HEADS-UP BEFORE</Text>
+                <View style={styles.whenRow}>
+                  {LEAD_TIME_CHOICES.map((choice) => (
+                    <Pressable
+                      key={choice.label}
+                      style={[
+                        styles.whenChip,
+                        leadTime === choice.seconds && styles.whenChipActive,
+                      ]}
+                      onPress={() => setLeadTime(choice.seconds)}
+                    >
+                      <Text
+                        style={[
+                          styles.whenChipText,
+                          leadTime === choice.seconds && styles.whenChipTextActive,
+                        ]}
+                      >
+                        {choice.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <Text style={styles.settingDesc}>{describeLeadTime(leadTime)}</Text>
+
                 <Text style={styles.editorLabel}>REPEAT</Text>
                 <View style={styles.whenRow}>
                   <Pressable
@@ -1109,9 +1136,14 @@ function EditSheet({ task, onSave, onClose }: EditSheetProps) {
                   fireAt: dated ? fireAt.toISOString() : null,
                   nagIntervalSeconds: intervalSeconds,
                   nagMaxCount: maxCount,
-                  escalationMode: shrink ? "shrink" : "none",
+                  // Shrink can't apply to a single fire, so "Just once" (badgr's
+                  // nag-off, plan §9.1) never persists a flag that can't take effect.
+                  escalationMode: shrink && maxCount !== 1 ? "shrink" : "none",
                   // A repeat needs a date to repeat from — clearing the date clears it too.
                   repeatRule: dated ? repeat : null,
+                  // A pre-alarm needs something to precede, so an undated task
+                  // never keeps one.
+                  leadTimeSeconds: dated ? leadTime : null,
                 })
               }
             />

@@ -25,6 +25,7 @@ function makeTask(overrides: Partial<Task>): Task {
     deviceOrigin: "web",
     deletedAt: null,
     snoozeCount: 0,
+    leadTimeSeconds: null,
     ...overrides,
   };
 }
