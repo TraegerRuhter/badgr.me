@@ -12,14 +12,20 @@ build plan for whichever workstream you've been asked to pick up.
 
 ### Start here, whatever you were asked to do
 
-1. **Is `main` green?** Run `pnpm -r typecheck && pnpm -r lint && pnpm -r test`
-   before touching anything. It has been red before: #37 and #38 each passed CI
-   alone and broke on merge, because a Dependabot typings bump tightened
-   `BufferSource` under code written against the older types. Branch-level CI
-   cannot see that class of failure, so check rather than assume. Baseline is
-   **347 tests**.
-2. **Run `pnpm install` at the repo root.** A partial sandbox install produces
-   phantom `TS2307: Cannot find module` errors that are not real.
+1. **`main` is red, and has been since #37 merged.** Last green `main` is
+   `d83f914`. **PR #39 contains both fixes** (`b195b0e`, `79d0042`), so if it
+   has landed by the time you read this, `main` is fine and this note is
+   history — check before assuming either way. If it hasn't, branch from #39's
+   head rather than `main`, or you inherit a broken typecheck.
+
+   Both breakages came from one Dependabot bump, and neither was visible to
+   branch-level CI, because each contributing PR passed alone and only the
+   *merge* fails. Expect this class of failure again; check rather than assume.
+2. **Run `pnpm install` at the repo root, then verify in a clean clone.** A
+   partial sandbox install produces phantom `TS2307: Cannot find module` errors
+   that are not real — *and* hides real errors, silently. See the gotchas
+   section. Baseline is **347 tests**:
+   `pnpm -r typecheck && pnpm -r lint && pnpm -r test`.
 3. **Then read the plan for your workstream.** Both are self-contained and their
    section numbers are cited from code comments.
 
