@@ -1398,3 +1398,72 @@
   flex-direction: column;
   margin-top: 6px;
 }
+
+/* ---------- recovery sheet (portable-sync plan §7) ---------- */
+
+.vault-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 4px;
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-raised);
+}
+
+/*
+ * The code itself. Monospace and generously spaced because this gets copied by
+ * hand onto paper — the reader needs to keep their place across 56 characters.
+ */
+.recovery-code {
+  margin: 0;
+  padding: 14px 15px;
+  border: 2px solid var(--accent);
+  border-radius: 9px;
+  background: var(--bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.9;
+  letter-spacing: 0.6px;
+  word-spacing: 3px;
+  word-break: break-all;
+  user-select: all;
+}
+
+.code-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+/* The no-recovery acknowledgement. Deliberately not styled to be dismissible. */
+.vault-ack {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 11px 12px;
+  border: 1px solid var(--danger);
+  border-radius: 9px;
+  background: var(--danger-soft);
+  font-size: 12.5px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.vault-ack input {
+  flex: none;
+  margin-top: 2px;
+  accent-color: var(--danger);
+}
+
+.recover-link {
+  color: var(--text-dim);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.recover-link:hover {
+  color: var(--accent);
+}

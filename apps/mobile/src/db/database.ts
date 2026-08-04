@@ -129,6 +129,15 @@ const MIGRATIONS: ((db: SQLite.SQLiteDatabase) => Promise<void>)[] = [
       CREATE INDEX IF NOT EXISTS tasks_fire_at_idx ON tasks (fire_at);
     `);
   },
+  // v3 — pre-alarm lead time (due-parity plan §3.6). Nullable: an existing
+  // task has no heads-up, and null is exactly that.
+  async (db) => {
+    if (!(await columnExists(db, "tasks", "lead_time_seconds"))) {
+      await db.execAsync(
+        "ALTER TABLE tasks ADD COLUMN lead_time_seconds INTEGER;"
+      );
+    }
+  },
 ];
 
 export async function initDatabase(): Promise<void> {
@@ -167,6 +176,7 @@ interface TaskRow {
   device_origin: string;
   deleted_at: string | null;
   snooze_count: number;
+  lead_time_seconds: number | null;
 }
 
 function rowToTask(row: TaskRow): Task {
@@ -188,6 +198,7 @@ function rowToTask(row: TaskRow): Task {
     deviceOrigin: row.device_origin as DeviceOrigin,
     deletedAt: row.deleted_at,
     snoozeCount: row.snooze_count,
+    leadTimeSeconds: row.lead_time_seconds,
   };
 }
 
@@ -202,6 +213,8 @@ export interface NewTaskInput {
   escalationMode?: EscalationMode;
   repeatRule?: string | null;
   priority?: number;
+  /** Seconds of heads-up before the fire time, or null for none. */
+  leadTimeSeconds?: number | null;
 }
 
 /**
@@ -245,6 +258,7 @@ export async function createTask(input: NewTaskInput): Promise<Task> {
     deviceOrigin: "mobile",
     deletedAt: null,
     snoozeCount: 0,
+    leadTimeSeconds: input.leadTimeSeconds ?? null,
   };
 
   await db.runAsync(
@@ -252,8 +266,8 @@ export async function createTask(input: NewTaskInput): Promise<Task> {
        id, title, notes, created_at, updated_at, fire_at,
        nag_interval_seconds, nag_max_count, nag_until, escalation_mode,
        completed_at, dismissed_at, repeat_rule, priority, device_origin, deleted_at,
-       snooze_count
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       snooze_count, lead_time_seconds
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       task.id,
       task.title,
@@ -272,6 +286,7 @@ export async function createTask(input: NewTaskInput): Promise<Task> {
       task.deviceOrigin,
       task.deletedAt,
       task.snoozeCount,
+      task.leadTimeSeconds,
     ]
   );
 
@@ -361,6 +376,8 @@ export interface TaskPatch {
   escalationMode?: EscalationMode;
   /** A RepeatRule string sets it; null/"" clears it (one-off task again). */
   repeatRule?: string | null;
+  /** A positive number sets the pre-alarm; null turns it off. */
+  leadTimeSeconds?: number | null;
 }
 
 /**
@@ -409,11 +426,19 @@ export async function updateTask(
   if (patch.repeatRule !== undefined) {
     next.repeatRule = isRepeatRule(patch.repeatRule) ? patch.repeatRule : null;
   }
+  if (patch.leadTimeSeconds !== undefined) {
+    next.leadTimeSeconds =
+      patch.leadTimeSeconds != null &&
+      Number.isInteger(patch.leadTimeSeconds) &&
+      patch.leadTimeSeconds > 0
+        ? patch.leadTimeSeconds
+        : null;
+  }
   next.updatedAt = new Date().toISOString();
 
   const db = await getDb();
   await db.runAsync(
-    "UPDATE tasks SET title = ?, notes = ?, fire_at = ?, nag_interval_seconds = ?, nag_max_count = ?, escalation_mode = ?, repeat_rule = ?, updated_at = ? WHERE id = ?",
+    "UPDATE tasks SET title = ?, notes = ?, fire_at = ?, nag_interval_seconds = ?, nag_max_count = ?, escalation_mode = ?, repeat_rule = ?, lead_time_seconds = ?, updated_at = ? WHERE id = ?",
     [
       next.title,
       next.notes,
@@ -422,6 +447,7 @@ export async function updateTask(
       next.nagMaxCount,
       next.escalationMode,
       next.repeatRule,
+      next.leadTimeSeconds,
       next.updatedAt,
       id,
     ]
@@ -498,8 +524,8 @@ export const localTaskStore: LocalTaskStore = {
            id, title, notes, created_at, updated_at, fire_at,
            nag_interval_seconds, nag_max_count, nag_until, escalation_mode,
            completed_at, dismissed_at, repeat_rule, priority, device_origin,
-           deleted_at, snooze_count
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           deleted_at, snooze_count, lead_time_seconds
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           task.id,
           task.title,
@@ -518,6 +544,7 @@ export const localTaskStore: LocalTaskStore = {
           task.deviceOrigin,
           task.deletedAt,
           task.snoozeCount,
+          task.leadTimeSeconds,
         ]
       );
     }

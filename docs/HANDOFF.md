@@ -7,27 +7,56 @@ build plan for whichever workstream you've been asked to pick up.
 
 | Workstream | Plan | State |
 | --- | --- | --- |
-| Encrypted portable sync | `docs/plans/portable-sync-build-plan.md` | Phases 1–3 built and **merged** (#35, #36); Phase 3's gate needs physical devices |
-| Reminder-editing parity with Due | `docs/plans/due-parity-build-plan.md` | Phases 1–3 built, **PR #38 open and green**; Phase 4 needs a go-ahead |
+| Encrypted portable sync | `docs/plans/portable-sync-build-plan.md` | Phases 1–3 **merged** (#35, #36). §7 recovery sheet + passphrase change in **PR #39**. Phase 3's gate still needs physical devices |
+| Reminder-editing parity with Due | `docs/plans/due-parity-build-plan.md` | Phases 1–4 built (1–3 merged as #38, Phase 4 in **PR #39**). Phases 5–6 unblocked |
+
+### Start here, whatever you were asked to do
+
+1. **`main` is red, and has been since #37 merged.** Last green `main` is
+   `d83f914`. **PR #39 contains both fixes** (`b195b0e`, `79d0042`), so if it
+   has landed by the time you read this, `main` is fine and this note is
+   history — check before assuming either way. If it hasn't, branch from #39's
+   head rather than `main`, or you inherit a broken typecheck.
+
+   Both breakages came from one Dependabot bump, and neither was visible to
+   branch-level CI, because each contributing PR passed alone and only the
+   *merge* fails. Expect this class of failure again; check rather than assume.
+2. **Run `pnpm install` at the repo root, then verify in a clean clone.** A
+   partial sandbox install produces phantom `TS2307: Cannot find module` errors
+   that are not real — *and* hides real errors, silently. See the gotchas
+   section. Baseline is **347 tests**:
+   `pnpm -r typecheck && pnpm -r lint && pnpm -r test`.
+3. **Then read the plan for your workstream.** Both are self-contained and their
+   section numbers are cited from code comments.
+
+### The format question is settled
+
+Adding a field to `Task` used to break the BDGR1 encrypted payload. It no longer
+does: `canonical.ts` splits its key list into a mandatory v1 core and optional
+later keys that are backfilled on read. Old snapshots still open; new snapshots
+still open in older clients.
+
+**To add a `Task` field:** append to `LATER_KEYS`, give it a default meaning
+"never set", and read the rules at the top of `vectors.test.ts` before
+regenerating anything. `compat.test.ts` is the guard — if it fails, the design
+has failed and a `FORMAT_VERSION` bump becomes the right answer.
+
+This deliberately overrode an older note in this file, and one in
+`canonical.ts`, that both said to bump `FORMAT_VERSION` rather than regenerate
+the vectors. Those notes predated anyone trying to add a field. The full
+reasoning, and the conditions under which the version bump becomes correct
+after all, are in `docs/plans/due-parity-build-plan.md` §9.4.
 
 ### Picking up the Due-parity work
 
 Go straight to its plan — it is self-contained, and its §1 explains how to
 regenerate the reference frames from the recording on branch `Vid`.
 
-Phases 1–3 are done: the derived-label engine (`packages/core/src/describe.ts`),
-nag presets with live fire-time previews, and progressive disclosure in both
-editors.
-
-**Phase 4 is written but blocked, and the blocker is bigger than Phase 4.**
-Adding *any* field to `Task` collides with the BDGR1 encrypted format:
-`canonical.ts` uses a fixed key list and `parseNdjson` rejects a row missing any
-of them, so adding a key makes existing vaults unreadable while omitting it
-makes encrypted file sync silently disagree with Supabase sync. The two
-workstreams in this table are not as independent as they look. The full analysis
-and three candidate fixes are in the Due-parity plan's Phase 4 section; the
-implementation is stashed on the branch (`git stash list`) pending that
-decision.
+Phases 1–4 are built: the derived-label engine (`packages/core/src/describe.ts`),
+nag presets with live fire-time previews, progressive disclosure in both editors,
+and the pre-alarm lead time. Phases 5 (intra-day recurrence) and 6 (categories)
+are specified and now unblocked — both add `Task` fields, which the format change
+above made routine.
 
 Two things to know before touching this:
 
@@ -41,7 +70,21 @@ Two things to know before touching this:
   Mobile parity currently rests on typecheck plus the shared-source guard in
   `apps/web/src/labelParity.test.ts`, not on anyone having looked at it.
 
-### Encrypted portable sync
+### Picking up the encrypted-sync work
+
+Phases 1–3 are merged and Phase 3's gate still needs physical devices — the
+checklist is at the bottom of this file.
+
+**PR #39 adds the §7 recovery paths** and is the most recent work: a recovery
+sheet (Crockford base32 with a checksum, deviating from the plan's base64 for
+transcription reasons recorded in `recovery.ts`), unlocking with that code, and
+passphrase change by re-wrapping the data key. Before it, forgetting a
+passphrase meant permanently unreadable snapshots.
+
+Two API shapes there are deliberate and worth not "simplifying":
+`unlockVaultRecord` exists so rotating a passphrase does not demand a snapshot
+file, and `changeWebVaultPassphrase` takes the passphrase rather than the live
+vault because the web key is non-extractable by design.
 
 Everything below this line is the encrypted-sync workstream.
 
@@ -232,13 +275,39 @@ churns every import for zero user value.
 - **Run `pnpm install` at the repo root first.** The sandbox may arrive with a
   partial install, which produces phantom `TS2307: Cannot find module` errors in
   packages whose `node_modules` is missing. They are not real type errors.
+- **A partial install also *hides* real errors, and `pnpm install` will not tell
+  you.** It reports "Already up to date" against the lockfile while the tree is
+  missing packages, and a `tsc` run that never loads a `.d.ts` cannot fail on it.
+  This is how a green local `pnpm -r typecheck` and a red CI coexist. When CI
+  disagrees with you, reproduce in a clean tree before doubting CI:
+
+  ```bash
+  git clone --shared . /tmp/repro && cd /tmp/repro
+  pnpm install --frozen-lockfile && pnpm -r typecheck
+  ```
+
+  The store is local, so it takes seconds.
+- **`@types/node` is pinned to one major by a `pnpm.overrides` entry in the root
+  `package.json`. Don't remove it.** `apps/web` declares `^24`, while vitest's
+  open peer range pulled a second major in transitively. Two majors means two
+  bundled `undici-types`, so `fetch`'s `RequestInit.signal` and
+  `new AbortController().signal` come from different declarations of
+  `AbortSignal` and refuse to unify —
+  `Property 'onabort' is missing in type 'AbortSignal' but required in type
+  'AbortSignal'`, which reads like nonsense until you know there are two.
+  Dependabot can reintroduce this by bumping one and not the other.
 - **Tests use `TEST_KDF`** (`m: 64, t: 1`), not `DEFAULT_KDF`. Real Argon2id
   parameters take ~830 ms per call and would make the suite unusable. A separate
   test asserts `DEFAULT_KDF` hasn't changed, so speeding up tests can't quietly
   weaken production.
-- **A failing `vectors.test.ts` is not flaky.** It means the on-disk format
-  changed and existing vaults can no longer be read. Bump `FORMAT_VERSION` and
-  write a migration — do not just paste in the new expected bytes.
+- **A failing `vectors.test.ts` is not flaky.** It means the bytes badgr writes
+  changed. Default to bumping `FORMAT_VERSION` and writing a migration — do not
+  just paste in the new expected bytes. **The one exception**, taken once and
+  documented in `vectors.test.ts`'s own doc comment: appending an optional key
+  that reads tolerantly changes what we *write* without changing what we can
+  *read*, so old vaults stay readable and no migration exists to write. Taking
+  that exception requires a `compat.test.ts` case proving a genuine old envelope
+  still opens. Reasoning in `docs/plans/due-parity-build-plan.md` §9.4.
 - **Playwright:** chromium is at `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`,
   the module at `/opt/node22/lib/node_modules/playwright/index.mjs`. Never run
   `playwright install`.
@@ -258,16 +327,16 @@ pnpm install
 pnpm -r typecheck && pnpm -r lint && pnpm -r test
 ```
 
-Current baseline — **243 tests**, all passing (was 192 before Phase 3):
+Current baseline — **347 tests**, all passing (was 192 before Phase 3):
 
 | Package | Tests |
 | --- | --- |
-| `packages/core` | 121 |
-| `packages/crypto` | 66 |
+| `packages/core` | 156 |
+| `packages/crypto` | 101 |
 | `packages/portable-sync` | 25 |
 | `services/nag-ai` | 14 |
 | `packages/supabase` | 10 |
-| `apps/web` | 7 |
+| `apps/web` | 14 |
 
 `packages/ui` and `apps/mobile` have no tests yet — the mobile file-sync logic
 is deliberately thin glue over `portable-sync`, which is where it is tested.

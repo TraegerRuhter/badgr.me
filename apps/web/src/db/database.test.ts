@@ -66,6 +66,7 @@ describe("web task store", () => {
         nagIntervalSeconds: -5,
         escalationMode: "banana",
         snoozeCount: "seven",
+        leadTimeSeconds: null,
         priority: Infinity,
         deviceOrigin: "toaster",
       },

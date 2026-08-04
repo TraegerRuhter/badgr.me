@@ -195,6 +195,50 @@ try {
         await drawer.evaluate((el) => el.scrollTo(0, el.scrollHeight));
         await page.waitForTimeout(400);
         await shoot(page, "08-editor-more", "notes + repeat behind disclosure");
+
+        // Phase 4: the pre-alarm row only exists on a dated task, and its
+        // summary line is the thing worth seeing — pick a value so the shot
+        // shows a derived sentence rather than the default "Off".
+        const leadChip = page
+          .locator(".when-row .when-chip", { hasText: /^15 min$/ })
+          .first();
+        if (await leadChip.count()) {
+          await leadChip.scrollIntoViewIfNeeded();
+          await leadChip.click();
+          await page.waitForTimeout(350);
+          await shoot(page, "09-editor-leadtime", "pre-alarm lead time (Phase 4)");
+        }
+      }
+    }
+  }
+
+  // Vault panel: the recovery work (portable-sync plan §7). Close whatever the
+  // editor left open first — an open drawer swallows clicks aimed behind it.
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(400);
+
+  const settingsBtn = page.getByRole("button", { name: "Settings" });
+  if (await settingsBtn.count()) {
+    await settingsBtn.first().click();
+    await page.waitForTimeout(400);
+    const all = page.getByText("All settings", { exact: false });
+    if (await all.count()) {
+      await all.first().click();
+      await page.waitForTimeout(500);
+      const drawer = page.locator("aside.drawer");
+      await drawer.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      await page.waitForTimeout(400);
+      await shoot(page, "10-vault-setup", "vault setup — no-recovery acknowledgement");
+
+      const recoverLink = page.getByText("Forgotten your passphrase", { exact: false });
+      if (await recoverLink.count()) {
+        await recoverLink.first().click();
+        await page.waitForTimeout(350);
+        await drawer.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+        await page.waitForTimeout(350);
+        await shoot(page, "11-vault-recover", "recover with the sheet");
       }
     }
   }

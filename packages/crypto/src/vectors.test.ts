@@ -6,12 +6,29 @@ import { fakeRandom, makeTask, TEST_KDF } from "./testing";
 /**
  * Format lock (build plan §9).
  *
- * These bytes were produced by the implementation at the time BDGR1 was frozen.
  * If a change to serialisation, key derivation, canonical ordering, framing, or
  * padding alters the output, this test fails — which is the point. A failure
- * here is not a flaky test; it means previously written vaults can no longer be
- * read, and it requires a FORMAT_VERSION bump plus a migration, not a new
- * expected value.
+ * here is not flaky. Treat it as "previously written vaults may no longer be
+ * readable" until proven otherwise, and never paste in whatever the suite
+ * currently produces.
+ *
+ * ## Regenerated once, 2026-08-03, when `leadTimeSeconds` was added
+ *
+ * Appending a key to the canonical payload changes the bytes of every *newly
+ * written* vault, so `ciphertextHead` and `gcmTag` moved. The header and the
+ * total length did not: the header carries no payload keys, and the 4 KiB
+ * padding absorbs the extra bytes.
+ *
+ * That is only acceptable because **old vaults still open**, which is not
+ * assumed here — `compat.test.ts` seals a genuine v1-shaped envelope and reads
+ * it back, proving the missing key is backfilled rather than rejected. If a
+ * future change breaks these vectors *and* that compatibility suite, the
+ * tolerant-read design has failed and a FORMAT_VERSION bump is the right answer
+ * after all.
+ *
+ * So: regenerating these is legitimate only alongside a passing `compat.test.ts`
+ * and a recorded reason. Regenerating them to make a red suite go green is how
+ * you silently make someone's vault unreadable.
  */
 const PASS = "correct horse battery staple";
 
@@ -31,8 +48,8 @@ const EXPECTED = {
     "f0396a988543e9532175c54ee80d2996db65d76ff1fe24bc8a92e728bb16908e" +
     "bd9e954aa7fd3ec65b32a7930e237a2570aa1d9b07cb2b30eed01aba35879c62" +
     "54a02530a48ab60000000000000000074fab18d33521508aeda5294e",
-  ciphertextHead: "f80ea3313f8683cb44b21cdf609c67c1510c8937a780e39c85d53babc519d58c",
-  gcmTag: "f6fb87c587b6b3eea5cc38e8a525f5c6",
+  ciphertextHead: "f80ea33e3f8683cb44b21cdf609c67c121084936a7807b1c4a1465b8edf35d37",
+  gcmTag: "0faf2b6faedd1d6bd262c747b800a38b",
 } as const;
 
 const hex = (b: Uint8Array) => Buffer.from(b).toString("hex");
@@ -90,9 +107,18 @@ describe("noble ↔ WebCrypto interop", () => {
     const nonce = blob.slice(OFF.payloadNonce, OFF.payloadNonce + NONCE_BYTES);
     const ciphertext = blob.slice(HEADER_BYTES);
 
-    const key = await crypto.subtle.importKey("raw", vault.dataKey, "AES-GCM", false, [
-      "decrypt",
-    ]);
+    // Copied into a fresh buffer rather than passed directly: WebCrypto's
+    // BufferSource requires an ArrayBuffer-backed view, and a plain Uint8Array
+    // is typed as possibly SharedArrayBuffer-backed. Deliberately not going
+    // through this package's own importDataKey — the point of these vectors is
+    // that a *third party* using stock WebCrypto can read what we write.
+    const key = await crypto.subtle.importKey(
+      "raw",
+      new Uint8Array(vault.dataKey),
+      "AES-GCM",
+      false,
+      ["decrypt"]
+    );
     const plain = new Uint8Array(
       await crypto.subtle.decrypt(
         { name: "AES-GCM", iv: nonce, additionalData: header },
@@ -114,9 +140,18 @@ describe("noble ↔ WebCrypto interop", () => {
     header[OFF.seq + 7] ^= 0x01;
     const nonce = blob.slice(OFF.payloadNonce, OFF.payloadNonce + NONCE_BYTES);
 
-    const key = await crypto.subtle.importKey("raw", vault.dataKey, "AES-GCM", false, [
-      "decrypt",
-    ]);
+    // Copied into a fresh buffer rather than passed directly: WebCrypto's
+    // BufferSource requires an ArrayBuffer-backed view, and a plain Uint8Array
+    // is typed as possibly SharedArrayBuffer-backed. Deliberately not going
+    // through this package's own importDataKey — the point of these vectors is
+    // that a *third party* using stock WebCrypto can read what we write.
+    const key = await crypto.subtle.importKey(
+      "raw",
+      new Uint8Array(vault.dataKey),
+      "AES-GCM",
+      false,
+      ["decrypt"]
+    );
     await expect(
       crypto.subtle.decrypt(
         { name: "AES-GCM", iv: nonce, additionalData: header },

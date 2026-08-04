@@ -1,4 +1,5 @@
 import { generateTemplateCopy, type NagPack } from "./copy";
+import { describeRelativeFireTime } from "./describe";
 import { allocateNotificationBudget, type SchedulableTask } from "./nag";
 import type { Task } from "./types";
 
@@ -15,15 +16,33 @@ import type { Task } from "./types";
 export const NAG_ID_PREFIX = "nag";
 const NAG_ID_SEPARATOR = ":";
 
+/**
+ * The pre-alarm's slot marker (plan §3.6). A word rather than an index, so it
+ * cannot collide with a burst position, and so `parseNotificationId` can keep
+ * rejecting negative and non-integer indices as malformed.
+ */
+export const PRE_ALARM_SLOT = "pre";
+
 export function buildNotificationId(taskId: string, index: number): string {
   return [NAG_ID_PREFIX, taskId, index].join(NAG_ID_SEPARATOR);
 }
 
+/** Shares the `nag:{taskId}:` prefix so cancelling a task still clears everything. */
+export function buildPreAlarmId(taskId: string): string {
+  return [NAG_ID_PREFIX, taskId, PRE_ALARM_SLOT].join(NAG_ID_SEPARATOR);
+}
+
 export function parseNotificationId(
   identifier: string
-): { taskId: string; index: number } | null {
+): { taskId: string; index: number; preAlarm?: true } | null {
   const parts = identifier.split(NAG_ID_SEPARATOR);
   if (parts.length !== 3 || parts[0] !== NAG_ID_PREFIX) return null;
+  if (parts[2] === PRE_ALARM_SLOT) {
+    // Index 0 keeps every existing caller working: the pre-alarm belongs to the
+    // same task and precedes its first fire, so treating it as position zero is
+    // the honest answer for anything that only cares about ordering.
+    return { taskId: parts[1], index: 0, preAlarm: true };
+  }
   const index = Number(parts[2]);
   if (!Number.isInteger(index) || index < 0) return null;
   return { taskId: parts[1], index };
@@ -108,6 +127,7 @@ export function planNagNotifications(
     escalationMode: task.escalationMode,
     priority: task.priority,
     snoozeCount: task.snoozeCount,
+    leadTimeSeconds: task.leadTimeSeconds,
   }));
 
   const bursts = allocateNotificationBudget(schedulable, {
@@ -122,6 +142,26 @@ export function planNagNotifications(
   for (const burst of bursts) {
     const task = tasksById.get(burst.taskId);
     if (!task) continue;
+
+    /*
+     * The pre-alarm is a heads-up, so it deliberately skips the escalation
+     * ladder: the task isn't late yet, and opening with the sass reserved for
+     * a task you've ignored six times would be nonsense. Plain and factual.
+     */
+    if (burst.preAlarm) {
+      planned.push({
+        identifier: buildPreAlarmId(task.id),
+        taskId: task.id,
+        index: 0,
+        fireAt: burst.preAlarm,
+        title: task.title,
+        body: `Coming up ${describeRelativeFireTime(
+          task.fireAt as string,
+          burst.preAlarm
+        )}.`,
+      });
+    }
+
     burst.fireTimes.forEach((fireAt, index) => {
       const level = Math.max(
         0,

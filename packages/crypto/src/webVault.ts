@@ -7,9 +7,12 @@ import {
   type SubtleCryptoLike,
 } from "./aead";
 import {
+  changePassphrase,
   createVault,
   toVaultRecord,
   unlockVault,
+  unlockVaultRecord,
+  unlockWithRecoveryCode,
   type CreateVaultOptions,
   type VaultRecord,
 } from "./envelope";
@@ -69,6 +72,53 @@ export async function unlockWebVault(
     return assemble(subtle, toVaultRecord(vault), key);
   } finally {
     zeroize(vault.dataKey);
+  }
+}
+
+/**
+ * Recovers a vault on the web from its recovery sheet (build plan §7).
+ *
+ * Same containment as every other web path: the raw key exists only long
+ * enough to be imported, then it is zeroed and what survives is a
+ * non-extractable handle.
+ */
+export async function recoverWebVault(
+  subtle: SubtleCryptoLike,
+  blob: Uint8Array,
+  code: string
+): Promise<WebVault> {
+  const vault = unlockWithRecoveryCode(blob, code);
+  try {
+    const key = await importDataKey(subtle, vault.dataKey);
+    return assemble(subtle, toVaultRecord(vault), key);
+  } finally {
+    zeroize(vault.dataKey);
+  }
+}
+
+/**
+ * Changes the passphrase on the web.
+ *
+ * Takes the current passphrase and the stored vault record, not the live
+ * `WebVault`, and that is not an oversight. The stored web key is deliberately
+ * non-extractable, so its bytes cannot be read back to re-wrap them — the data
+ * key has to be re-derived from the passphrase. Which is the right shape
+ * anyway: rotating a passphrase should require proving you know the old one,
+ * not merely holding an unlocked session.
+ */
+export async function changeWebVaultPassphrase(
+  subtle: SubtleCryptoLike,
+  record: VaultRecord,
+  currentPassphrase: string,
+  newPassphrase: string
+): Promise<WebVault> {
+  const current = unlockVaultRecord(currentPassphrase, record);
+  const rotated = changePassphrase(current, newPassphrase);
+  try {
+    const key = await importDataKey(subtle, rotated.dataKey);
+    return assemble(subtle, toVaultRecord(rotated), key);
+  } finally {
+    zeroize(current.dataKey);
   }
 }
 

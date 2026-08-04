@@ -2,10 +2,14 @@ import * as SecureStore from "expo-secure-store";
 import {
   base64UrlDecode,
   base64UrlEncode,
+  changePassphrase,
   createVault,
   nobleAead,
+  revealRecoveryCode,
   toVaultRecord,
   unlockVault,
+  unlockVaultRecord,
+  unlockWithRecoveryCode,
   type Aead,
   type KdfParams,
   type VaultKeys,
@@ -129,6 +133,41 @@ export async function unlockDeviceVault(
   blob: Uint8Array
 ): Promise<MobileVault> {
   return persist(unlockVault(passphrase, blob));
+}
+
+/** Joins a vault using the recovery sheet instead of the passphrase (plan §7). */
+export async function recoverDeviceVault(
+  code: string,
+  blob: Uint8Array
+): Promise<MobileVault> {
+  return persist(unlockWithRecoveryCode(blob, code));
+}
+
+/**
+ * Rotates the passphrase using the record already in the keystore — no snapshot
+ * file needed, since everything the unwrap wants is non-secret and stored here.
+ */
+export async function changeDevicePassphrase(
+  currentPassphrase: string,
+  newPassphrase: string
+): Promise<MobileVault> {
+  const raw = await SecureStore.getItemAsync(VAULT_KEY, options);
+  if (raw === null) throw new Error("No vault on this device");
+  const current = unlockVaultRecord(currentPassphrase, decode(raw));
+  return persist(changePassphrase(current, newPassphrase));
+}
+
+/**
+ * The recovery code, which costs a real unlock to see.
+ *
+ * The raw key is sitting in the keystore and could be read directly, but a
+ * phone left unlocked on a table should not hand over the one credential that
+ * never expires. Same reasoning as the web path.
+ */
+export async function showRecoveryCode(passphrase: string): Promise<string> {
+  const raw = await SecureStore.getItemAsync(VAULT_KEY, options);
+  if (raw === null) throw new Error("No vault on this device");
+  return revealRecoveryCode(passphrase, toVaultRecord(decode(raw)));
 }
 
 /**

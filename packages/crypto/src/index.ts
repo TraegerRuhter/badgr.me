@@ -5,5 +5,6 @@ export * from "./armor";
 export * from "./canonical";
 export * from "./framing";
 export * from "./keys";
+export * from "./recovery";
 export * from "./envelope";
 export * from "./webVault";

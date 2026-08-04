@@ -8,7 +8,12 @@ import {
 } from "@alarmed/portable-sync";
 
 import { localTaskStore } from "../db/database";
-import { indexedDbSeqStore, loadVault, unlockDeviceVault } from "../crypto/keystore";
+import {
+  indexedDbSeqStore,
+  loadVault,
+  recoverDeviceVault,
+  unlockDeviceVault,
+} from "../crypto/keystore";
 
 /**
  * Phase 3 on the web: the same sealed snapshot as mobile, moved by download and
@@ -78,5 +83,20 @@ export async function joinVaultFromFile(
 ): Promise<ImportResult> {
   const text = await file.text();
   await unlockDeviceVault(passphrase, dearmor(text));
+  return importSnapshotText(await context(), text);
+}
+
+/**
+ * The passphrase is gone: recover using the sheet plus any snapshot from the
+ * vault (plan §7). The snapshot is not optional — a recovery code carries no
+ * proof of which vault it belongs to, so there has to be something to check it
+ * against, and you would be importing one anyway.
+ */
+export async function recoverVaultFromFile(
+  code: string,
+  file: Blob
+): Promise<ImportResult> {
+  const text = await file.text();
+  await recoverDeviceVault(code, dearmor(text));
   return importSnapshotText(await context(), text);
 }

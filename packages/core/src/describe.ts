@@ -206,3 +206,30 @@ export function describeRelativeFireTime(
 export function quickChipLabel(fireAt: Date | string | null, now: Date = new Date()): string {
   return isPastDue(fireAt, now) ? "Now" : "Today";
 }
+
+/**
+ * Pre-alarm choices offered in the editor (§3.6).
+ *
+ * Shared so both clients offer the same set and the same wording (U7). `null`
+ * is "no heads-up", which is the default and must stay first — a pre-alarm is
+ * opt-in, because it costs a notification slot (U6).
+ */
+export interface LeadTimeChoice {
+  readonly seconds: number | null;
+  readonly label: string;
+}
+
+export const LEAD_TIME_CHOICES: readonly LeadTimeChoice[] = [
+  { seconds: null, label: "Off" },
+  { seconds: 300, label: "5 min" },
+  { seconds: 900, label: "15 min" },
+  { seconds: 1800, label: "30 min" },
+  { seconds: 3600, label: "1 hr" },
+  { seconds: 86400, label: "1 day" },
+];
+
+/** "Heads-up 15 min before" — the derived summary for a chosen lead time. */
+export function describeLeadTime(seconds: number | null): string {
+  if (seconds == null || seconds <= 0) return "No heads-up before it's due";
+  return `Heads-up ${formatDuration(seconds)} before`;
+}
