@@ -5,6 +5,7 @@ import { canonicalNdjson, parseNdjson } from "./canonical";
 import { frame, unframe } from "./framing";
 import type { Aead } from "./aead";
 import { deriveKek, deriveMasterKey, unwrapDataKey, wrapDataKey } from "./keys";
+import { formatRecoveryCode, parseRecoveryCode } from "./recovery";
 import {
   webCryptoRandom,
   webCryptoRandomAsync,
@@ -198,6 +199,104 @@ export function unlockVault(passphrase: string, blob: Uint8Array): VaultKeys {
     wrappedDataKey: h.wrappedDataKey,
     dataKey,
   };
+}
+
+/**
+ * Recovers a vault from its recovery sheet, with no passphrase involved
+ * (build plan §7).
+ *
+ * The recovery code *is* the data key, so this skips Argon2id entirely — it is
+ * instant where `unlockVault` takes about a second. The wrapped key in the
+ * header is simply ignored: it exists to be opened by a passphrase, and the
+ * whole point of this path is that the passphrase is gone.
+ *
+ * The recovered key is verified against the envelope before being returned. A
+ * checksum only proves the code was transcribed correctly, not that it belongs
+ * to *this* vault — without this check, a code from a different vault would be
+ * accepted here and fail later as "envelope failed authentication", which tells
+ * the user nothing they can act on.
+ */
+export function unlockWithRecoveryCode(blob: Uint8Array, code: string): VaultKeys {
+  const h = decodeHeader(blob);
+  const vault: VaultKeys = {
+    vaultId: h.vaultId,
+    kdfSalt: h.kdfSalt,
+    kdf: h.kdf,
+    wrapNonce: h.wrapNonce,
+    wrappedDataKey: h.wrappedDataKey,
+    dataKey: parseRecoveryCode(code),
+  };
+
+  try {
+    openEnvelope(vault, blob);
+  } catch {
+    throw new Error(
+      "That recovery code is valid, but it doesn't open this vault — it may belong to a different one"
+    );
+  }
+  return vault;
+}
+
+/**
+ * Changes the passphrase by re-wrapping the data key under a new one
+ * (build plan §7).
+ *
+ * Re-wraps 32 bytes; does not re-encrypt anything. That is the entire reason
+ * the design wraps a random data key instead of deriving the content key
+ * straight from the passphrase — a passphrase change on a large vault would
+ * otherwise mean rewriting every byte of it.
+ *
+ * A fresh salt and wrap nonce are generated rather than reused, so the new
+ * passphrase gets its own KDF work factor and nothing about the old one
+ * carries over.
+ *
+ * **Snapshots already exported keep their old header**, and their old header
+ * is what `unlockVault` reads. So an old file still needs the *old* passphrase
+ * — or the recovery code, which never changes. Export a fresh snapshot after
+ * changing the passphrase so the new header is the one in circulation; the
+ * callers in `@alarmed/portable-sync` do this by bumping the sequence and
+ * re-sealing.
+ */
+export function changePassphrase(
+  vault: VaultKeys,
+  newPassphrase: string,
+  random: RandomSource = webCryptoRandom
+): VaultKeys {
+  const kdfSalt = random(SALT_BYTES);
+  const wrapNonce = random(NONCE_BYTES);
+  const kek = deriveKek(deriveMasterKey(newPassphrase, kdfSalt, vault.kdf), kdfSalt);
+
+  return {
+    vaultId: vault.vaultId,
+    kdf: vault.kdf,
+    kdfSalt,
+    wrapNonce,
+    wrappedDataKey: wrapDataKey(kek, wrapNonce, vault.dataKey, vault.vaultId),
+    // Unchanged, deliberately: every existing snapshot stays readable, and the
+    // recovery sheet the user already printed stays valid.
+    dataKey: vault.dataKey,
+  };
+}
+
+/** The code to print on the recovery sheet for this vault. */
+export function recoveryCodeFor(vault: VaultKeys): string {
+  return formatRecoveryCode(vault.dataKey);
+}
+
+/**
+ * Reveals the recovery code, requiring the passphrase to do it.
+ *
+ * Both clients go through here rather than reading a cached key, so showing
+ * the sheet always costs a real unlock. A device left unlocked on a table
+ * should not hand over the one credential that never expires.
+ */
+export function revealRecoveryCode(passphrase: string, blob: Uint8Array): string {
+  const vault = unlockVault(passphrase, blob);
+  try {
+    return recoveryCodeFor(vault);
+  } finally {
+    vault.dataKey.fill(0);
+  }
 }
 
 /**
