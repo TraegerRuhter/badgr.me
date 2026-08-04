@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   describeNagPlan,
   describeNagPreset,
+  describeRoundsPlan,
   matchNagPreset,
   NAG_PRESETS,
   type Task,
@@ -49,6 +50,9 @@ function taskFixture(overrides: Partial<Task> = {}): Task {
     deletedAt: null,
     snoozeCount: 0,
     leadTimeSeconds: null,
+    roundsIntervalSeconds: null,
+    roundsMaxCount: null,
+    roundsDurationSeconds: null,
     ...overrides,
   };
 }
@@ -69,6 +73,12 @@ describe("U7 — shared label source", () => {
       expect(source, `${name} should use the shared fire-time preview`).toContain(
         "describeFireTimes"
       );
+      expect(source, `${name} should use the shared Rounds summary`).toContain(
+        "describeRoundsPlan"
+      );
+      expect(source, `${name} should use the shared Rounds schedule-only note`).toContain(
+        "ROUNDS_SCHEDULE_NOTE"
+      );
     }
   });
 
@@ -80,6 +90,8 @@ describe("U7 — shared label source", () => {
       /function\s+describeNagPlan/,
       /function\s+describeNagPreset/,
       /function\s+formatDuration/,
+      /function\s+describeRoundsPlan/,
+      /function\s+computeRoundsBurst/,
     ];
     for (const [name, source] of [
       ["web", read(WEB_APP)],
@@ -100,6 +112,9 @@ describe("U7 — shared label source", () => {
       ["mobile", read(MOBILE_APP)],
     ] as const) {
       expect(source, `${name} must compute a real burst`).toContain("computeNagBurst");
+      expect(source, `${name} must compute a real Rounds burst`).toContain(
+        "computeRoundsBurst"
+      );
     }
   });
 });
@@ -140,5 +155,15 @@ describe("U7 — pinned strings", () => {
     expect(describeNagPlan({ intervalSeconds: once.intervalSeconds, maxCount: 1 })).toBe(
       "Once, no repeat"
     );
+  });
+
+  it("renders the Rounds row summary identically for a fixture task (plan §3.4, §9.3.1)", () => {
+    const task = taskFixture({ roundsIntervalSeconds: 3600, roundsMaxCount: 2 });
+    const summary = describeRoundsPlan({
+      intervalSeconds: task.roundsIntervalSeconds,
+      maxCount: task.roundsMaxCount,
+      durationSeconds: task.roundsDurationSeconds,
+    });
+    expect(summary).toBe("Every 1 hr, 2 times");
   });
 });

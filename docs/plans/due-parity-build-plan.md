@@ -1,10 +1,12 @@
 # Build plan: reminder-editing parity with Due
 
-**Status:** Phases 1–4 built (1–3 merged as #38, Phase 4 in PR #39). The
+**Status:** Phases 1–5 built (1–3 merged as #38, Phase 4 in PR #39, Phase 5 —
+Rounds — on branch `claude/due-parity-phase-5-rounds-ci1bpn`). The
 canonical-format question that blocked Phase 4 is **resolved** — see §9.4, and
-§6's Phase 4 entry for the mechanics. Derived from a 90-second screen recording
-of Due for iOS (§1). Section numbers here are referenced from code comments —
-cite them rather than restating the reasoning inline.
+§6's Phase 4 entry for the mechanics; Phase 5 used the same mechanism for its
+own three fields. Derived from a 90-second screen recording of Due for iOS
+(§1). Section numbers here are referenced from code comments — cite them
+rather than restating the reasoning inline.
 
 The goal is **not** to clone Due. It is to import the handful of interaction
 patterns Due gets right (§2) into badgr's existing model, using badgr's own
@@ -359,13 +361,37 @@ a hard cutover to buy nothing for a field that is optional by construction.
 a genuine v1-shaped envelope and reads it back. If that suite ever fails, the
 tolerant-read design has failed and the version bump becomes correct after all.
 
-**Phase 5 — Intra-day recurrence (badgr's DayMinder).** §3.4. New fields for
-interval, and a count-or-duration cap. AutoComplete semantics are the hard part:
-"fire on a schedule" vs "fire when the previous one is completed" are different
-scheduling models, and the second cannot be fully pre-armed.
-*Gate: the enumerated fire-time preview matches `computeNagBurst` output exactly
-for 20 randomised configurations (U2). Autocomplete-off is either implemented
-or visibly absent — no half-working state.*
+**Phase 5 — Intra-day recurrence, named Rounds. DONE.** §3.4. Named per §9.3.1:
+not Due's "DayMinder", and not "Burst" (`computeNagBurst` already owns that
+word). Three new `Task` fields — `roundsIntervalSeconds`,
+`roundsMaxCount`, `roundsDurationSeconds` — added to `canonical.ts`'s
+`LATER_KEYS` per §9.4's mechanism, with `null` meaning "never set" for all
+three. `computeRoundsBurst` (`packages/core/src/nag.ts`) is a translation into
+`computeNagBurst`, not a second walk: Count mode passes `roundsMaxCount`
+straight through as `nagMaxCount`; Duration mode converts `roundsDurationSeconds`
+into an absolute `nagUntil` measured from `fireAt`. `allocateNotificationBudget`
+schedules Rounds fires right after the Nag-Me burst and before the pre-alarm —
+a Rounds fire is still the task actually being due, just later in the day,
+which outranks a mere heads-up (same reasoning as Phase 4's pre-alarm
+ordering). Rounds fires get their own notification-id slot,
+`nag:{taskId}:round:{index}`, so every existing `nag:`-prefix consumer
+(cancel-a-task, cancel-everything) keeps working with no changes.
+
+AutoComplete resolved as **visibly absent, not half-implemented**: "fire on a
+schedule" and "fire when the previous one is marked done" are different
+scheduling models, and the second needs a completion-triggered rescheduling
+path (hook into `completeTask` on both clients, re-arm the next Rounds fire
+dynamically) that doesn't exist anywhere in this codebase yet — building it
+for Rounds alone, on top of the pre-armed-notification architecture everything
+else here rests on, was out of scope for this phase. Rather than ship a toggle
+whose "off" position silently did nothing, neither editor offers one: Rounds
+only implements the schedule model, and `ROUNDS_SCHEDULE_NOTE`
+(`packages/core/src/describe.ts`) is the one line of copy, shared by both
+clients (U7), that says so in place of the missing control.
+*Gate: `packages/core/src/rounds.test.ts` proves the enumerated fire-time
+preview matches `computeNagBurst` output exactly for 20 randomised
+configurations (U2), and that Rounds fires are accounted for in
+`allocateNotificationBudget` with the 60-slot ceiling holding (U6).*
 
 **Phase 6 — Categories.** §3.6. New entity, list filtering, colour tokens.
 *Gate: categories survive a sync round-trip and a soft delete.*
@@ -454,14 +480,20 @@ two. One function, `formatDuration`, and §7's boundary tests pin it.
 
 ### 9.3 Still open
 
-1. **Name for intra-day recurrence.** "DayMinder" is Due's. Candidates: Rounds,
-   Loop, Burst (already means something in `computeNagBurst` — avoid). Needs a
-   name before Phase 5 writes it into the schema.
+1. ~~**Name for intra-day recurrence.**~~ **RESOLVED: Rounds.** "DayMinder" is
+   Due's; "Burst" already means something in `computeNagBurst`. Written into
+   the schema (`Task.roundsIntervalSeconds`, `roundsMaxCount`,
+   `roundsDurationSeconds`) and the copy (`ROUNDS_SCHEDULE_NOTE`,
+   `describeRoundsPlan`) in Phase 5.
 2. **Whether per-task snooze is worth the schema change**, given the global
    setting already exists and badgr is single-user. Cheap to add, but it is
    one more field on every sync payload.
 3. **Melody/Sound/Alert Message** are listed in §3.2 but excluded from §0.
    Revisit only if per-task sound becomes a real request.
+4. **Rounds' AutoComplete-off** (completion-triggered rescheduling, §3.4) is
+   deliberately unbuilt — see Phase 5 in §6. Revisit only alongside a real
+   dynamic-rescheduling architecture; bolting it onto Rounds alone isn't worth
+   the risk of a half-working toggle.
 
 ### 9.4 How the encrypted format grows — RESOLVED
 

@@ -31,6 +31,31 @@ export interface Task {
    * `allocateNotificationBudget` — see invariant U6.
    */
   leadTimeSeconds: number | null;
+  /**
+   * Rounds — intra-day recurrence (plan §3.4): the reminder itself fires
+   * again every `roundsIntervalSeconds`, starting from `fireAt`. Null means
+   * Rounds is off, which is every task's default. Named "Rounds" per plan
+   * §9.3.1: not Due's "DayMinder", and not "Burst" — `computeNagBurst`
+   * already owns that word.
+   *
+   * Costs notification slots, so it is accounted for in
+   * `allocateNotificationBudget` — see invariant U6.
+   */
+  roundsIntervalSeconds: number | null;
+  /**
+   * Rounds' cap, "Count" mode (plan §3.4's `Off | Count | Duration`
+   * control): stop after this many rounds. Mutually exclusive with
+   * `roundsDurationSeconds` — at most one is non-null. Null with a non-null
+   * `roundsIntervalSeconds` means the cap is `roundsDurationSeconds`
+   * instead, or Rounds is off if that is null too.
+   */
+  roundsMaxCount: number | null;
+  /**
+   * Rounds' cap, "Duration" mode: stop this many seconds after `fireAt`,
+   * rather than after a fixed count. Mutually exclusive with
+   * `roundsMaxCount`.
+   */
+  roundsDurationSeconds: number | null;
 }
 
 /** Mirrors the `nag_events` table (spec §4.2). */

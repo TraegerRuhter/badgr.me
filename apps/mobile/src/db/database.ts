@@ -138,6 +138,25 @@ const MIGRATIONS: ((db: SQLite.SQLiteDatabase) => Promise<void>)[] = [
       );
     }
   },
+  // v4 — Rounds: intra-day recurrence (due-parity plan §3.4). All three
+  // nullable; null means never configured, which is every existing row.
+  async (db) => {
+    if (!(await columnExists(db, "tasks", "rounds_interval_seconds"))) {
+      await db.execAsync(
+        "ALTER TABLE tasks ADD COLUMN rounds_interval_seconds INTEGER;"
+      );
+    }
+    if (!(await columnExists(db, "tasks", "rounds_max_count"))) {
+      await db.execAsync(
+        "ALTER TABLE tasks ADD COLUMN rounds_max_count INTEGER;"
+      );
+    }
+    if (!(await columnExists(db, "tasks", "rounds_duration_seconds"))) {
+      await db.execAsync(
+        "ALTER TABLE tasks ADD COLUMN rounds_duration_seconds INTEGER;"
+      );
+    }
+  },
 ];
 
 export async function initDatabase(): Promise<void> {
@@ -177,6 +196,9 @@ interface TaskRow {
   deleted_at: string | null;
   snooze_count: number;
   lead_time_seconds: number | null;
+  rounds_interval_seconds: number | null;
+  rounds_max_count: number | null;
+  rounds_duration_seconds: number | null;
 }
 
 function rowToTask(row: TaskRow): Task {
@@ -199,6 +221,9 @@ function rowToTask(row: TaskRow): Task {
     deletedAt: row.deleted_at,
     snoozeCount: row.snooze_count,
     leadTimeSeconds: row.lead_time_seconds,
+    roundsIntervalSeconds: row.rounds_interval_seconds,
+    roundsMaxCount: row.rounds_max_count,
+    roundsDurationSeconds: row.rounds_duration_seconds,
   };
 }
 
@@ -215,6 +240,12 @@ export interface NewTaskInput {
   priority?: number;
   /** Seconds of heads-up before the fire time, or null for none. */
   leadTimeSeconds?: number | null;
+  /** Rounds' interval (plan §3.4), or null/absent for off. */
+  roundsIntervalSeconds?: number | null;
+  /** Rounds' cap, "Count" mode. Mutually exclusive with `roundsDurationSeconds`. */
+  roundsMaxCount?: number | null;
+  /** Rounds' cap, "Duration" mode. Mutually exclusive with `roundsMaxCount`. */
+  roundsDurationSeconds?: number | null;
 }
 
 /**
@@ -259,6 +290,9 @@ export async function createTask(input: NewTaskInput): Promise<Task> {
     deletedAt: null,
     snoozeCount: 0,
     leadTimeSeconds: input.leadTimeSeconds ?? null,
+    roundsIntervalSeconds: input.roundsIntervalSeconds ?? null,
+    roundsMaxCount: input.roundsMaxCount ?? null,
+    roundsDurationSeconds: input.roundsDurationSeconds ?? null,
   };
 
   await db.runAsync(
@@ -266,8 +300,9 @@ export async function createTask(input: NewTaskInput): Promise<Task> {
        id, title, notes, created_at, updated_at, fire_at,
        nag_interval_seconds, nag_max_count, nag_until, escalation_mode,
        completed_at, dismissed_at, repeat_rule, priority, device_origin, deleted_at,
-       snooze_count, lead_time_seconds
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       snooze_count, lead_time_seconds, rounds_interval_seconds, rounds_max_count,
+       rounds_duration_seconds
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       task.id,
       task.title,
@@ -287,6 +322,9 @@ export async function createTask(input: NewTaskInput): Promise<Task> {
       task.deletedAt,
       task.snoozeCount,
       task.leadTimeSeconds,
+      task.roundsIntervalSeconds,
+      task.roundsMaxCount,
+      task.roundsDurationSeconds,
     ]
   );
 
@@ -378,6 +416,12 @@ export interface TaskPatch {
   repeatRule?: string | null;
   /** A positive number sets the pre-alarm; null turns it off. */
   leadTimeSeconds?: number | null;
+  /** Rounds' interval (plan §3.4); null turns Rounds off. */
+  roundsIntervalSeconds?: number | null;
+  /** Rounds' cap, "Count" mode; null (with the other cap also null) means no cap set. */
+  roundsMaxCount?: number | null;
+  /** Rounds' cap, "Duration" mode. */
+  roundsDurationSeconds?: number | null;
 }
 
 /**
@@ -434,11 +478,35 @@ export async function updateTask(
         ? patch.leadTimeSeconds
         : null;
   }
+  if (patch.roundsIntervalSeconds !== undefined) {
+    next.roundsIntervalSeconds =
+      patch.roundsIntervalSeconds != null &&
+      Number.isInteger(patch.roundsIntervalSeconds) &&
+      patch.roundsIntervalSeconds > 0
+        ? patch.roundsIntervalSeconds
+        : null;
+  }
+  if (patch.roundsMaxCount !== undefined) {
+    next.roundsMaxCount =
+      patch.roundsMaxCount != null &&
+      Number.isInteger(patch.roundsMaxCount) &&
+      patch.roundsMaxCount > 0
+        ? patch.roundsMaxCount
+        : null;
+  }
+  if (patch.roundsDurationSeconds !== undefined) {
+    next.roundsDurationSeconds =
+      patch.roundsDurationSeconds != null &&
+      Number.isInteger(patch.roundsDurationSeconds) &&
+      patch.roundsDurationSeconds > 0
+        ? patch.roundsDurationSeconds
+        : null;
+  }
   next.updatedAt = new Date().toISOString();
 
   const db = await getDb();
   await db.runAsync(
-    "UPDATE tasks SET title = ?, notes = ?, fire_at = ?, nag_interval_seconds = ?, nag_max_count = ?, escalation_mode = ?, repeat_rule = ?, lead_time_seconds = ?, updated_at = ? WHERE id = ?",
+    "UPDATE tasks SET title = ?, notes = ?, fire_at = ?, nag_interval_seconds = ?, nag_max_count = ?, escalation_mode = ?, repeat_rule = ?, lead_time_seconds = ?, rounds_interval_seconds = ?, rounds_max_count = ?, rounds_duration_seconds = ?, updated_at = ? WHERE id = ?",
     [
       next.title,
       next.notes,
@@ -448,6 +516,9 @@ export async function updateTask(
       next.escalationMode,
       next.repeatRule,
       next.leadTimeSeconds,
+      next.roundsIntervalSeconds,
+      next.roundsMaxCount,
+      next.roundsDurationSeconds,
       next.updatedAt,
       id,
     ]
@@ -524,8 +595,9 @@ export const localTaskStore: LocalTaskStore = {
            id, title, notes, created_at, updated_at, fire_at,
            nag_interval_seconds, nag_max_count, nag_until, escalation_mode,
            completed_at, dismissed_at, repeat_rule, priority, device_origin,
-           deleted_at, snooze_count, lead_time_seconds
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           deleted_at, snooze_count, lead_time_seconds, rounds_interval_seconds,
+           rounds_max_count, rounds_duration_seconds
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           task.id,
           task.title,
@@ -545,6 +617,9 @@ export const localTaskStore: LocalTaskStore = {
           task.deletedAt,
           task.snoozeCount,
           task.leadTimeSeconds,
+          task.roundsIntervalSeconds,
+          task.roundsMaxCount,
+          task.roundsDurationSeconds,
         ]
       );
     }

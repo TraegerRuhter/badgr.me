@@ -28,6 +28,9 @@ function makeRow(overrides: Partial<TaskRow> = {}): TaskRow {
     deleted_at: null,
     snooze_count: 3,
     lead_time_seconds: null,
+    rounds_interval_seconds: null,
+    rounds_max_count: null,
+    rounds_duration_seconds: null,
     ...overrides,
   };
 }

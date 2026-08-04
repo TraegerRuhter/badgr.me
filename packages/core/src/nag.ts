@@ -79,6 +79,45 @@ export function computeNagBurst(params: NagBurstParams): Date[] {
   return burst;
 }
 
+export interface RoundsBurstParams {
+  fireAt: Date;
+  intervalSeconds: number;
+  /** "Count" mode of §3.4's cap. Mutually exclusive with `durationSeconds`. */
+  maxCount?: number | null;
+  /** "Duration" mode: stop this many seconds after `fireAt`. Mutually exclusive with `maxCount`. */
+  durationSeconds?: number | null;
+  maxNotifications?: number;
+  now?: Date;
+}
+
+/**
+ * Rounds' own walk (plan §3.4): the reminder itself recurs every
+ * `intervalSeconds`, capped by count or by a duration measured from
+ * `fireAt`. Deliberately just a translation into `computeNagBurst` rather
+ * than a second walk, so Rounds can never drift from the one planner —
+ * that's what invariant U2's gate checks.
+ */
+export function computeRoundsBurst(params: RoundsBurstParams): Date[] {
+  const {
+    fireAt,
+    intervalSeconds,
+    maxCount = null,
+    durationSeconds = null,
+    maxNotifications,
+    now,
+  } = params;
+
+  return computeNagBurst({
+    fireAt,
+    nagIntervalSeconds: intervalSeconds,
+    nagMaxCount: maxCount,
+    nagUntil: durationSeconds != null ? new Date(fireAt.getTime() + durationSeconds * 1000) : null,
+    escalationMode: "none",
+    maxNotifications,
+    now,
+  });
+}
+
 export interface SchedulableTask {
   id: string;
   fireAt: Date;
@@ -92,11 +131,24 @@ export interface SchedulableTask {
   snoozeCount?: number;
   /** Seconds of heads-up before the first fire, or null/0 for none. */
   leadTimeSeconds?: number | null;
+  /** Rounds' interval (plan §3.4), or null/undefined when Rounds is off. */
+  roundsIntervalSeconds?: number | null;
+  /** Rounds' cap, "Count" mode. Mutually exclusive with `roundsDurationSeconds`. */
+  roundsMaxCount?: number | null;
+  /** Rounds' cap, "Duration" mode. Mutually exclusive with `roundsMaxCount`. */
+  roundsDurationSeconds?: number | null;
 }
 
 export interface ScheduledBurst {
   taskId: string;
   fireTimes: Date[];
+  /**
+   * Rounds' own fire times (plan §3.4), separate from `fireTimes` because
+   * they're a second, independent schedule — not part of the Nag-Me
+   * sequence and not counted against `nagMaxCount`. Empty when Rounds is
+   * off or the budget ran out before reaching it.
+   */
+  roundsFireTimes: Date[];
   /**
    * The pre-alarm heads-up, when one is configured, still in the future, and
    * the budget stretched to it. Separate from `fireTimes` because it is not
@@ -134,7 +186,7 @@ export function allocateNotificationBudget(
 
   for (const task of sorted) {
     if (remaining <= 0) {
-      results.push({ taskId: task.id, fireTimes: [] });
+      results.push({ taskId: task.id, fireTimes: [], roundsFireTimes: [] });
       continue;
     }
 
@@ -152,6 +204,26 @@ export function allocateNotificationBudget(
     remaining -= fireTimes.length;
 
     /*
+     * Rounds is allocated right after the Nag-Me burst and before the
+     * pre-alarm: a Rounds fire is still the task actually being due, just
+     * later in the day, which outranks a mere heads-up when the budget is
+     * tight (same reasoning as the pre-alarm ordering below).
+     */
+    const roundsCap = Math.min(perTaskCap, remaining);
+    const roundsFireTimes =
+      task.roundsIntervalSeconds != null && roundsCap > 0
+        ? computeRoundsBurst({
+            fireAt: task.fireAt,
+            intervalSeconds: task.roundsIntervalSeconds,
+            maxCount: task.roundsMaxCount,
+            durationSeconds: task.roundsDurationSeconds,
+            maxNotifications: roundsCap,
+            now,
+          })
+        : [];
+    remaining -= roundsFireTimes.length;
+
+    /*
      * The pre-alarm is allocated *after* the burst, deliberately. With one slot
      * left, the notification at the actual fire time is worth more than the
      * heads-up before it — a task that buzzes on time beats one that only warns
@@ -166,7 +238,7 @@ export function allocateNotificationBudget(
         : undefined;
     if (preAlarm) remaining -= 1;
 
-    results.push({ taskId: task.id, fireTimes, preAlarm });
+    results.push({ taskId: task.id, fireTimes, roundsFireTimes, preAlarm });
   }
 
   return results;

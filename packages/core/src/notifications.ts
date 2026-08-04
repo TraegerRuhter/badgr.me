@@ -1,5 +1,5 @@
 import { generateTemplateCopy, type NagPack } from "./copy";
-import { describeRelativeFireTime } from "./describe";
+import { describeRelativeFireTime, describeRoundOccurrence } from "./describe";
 import { allocateNotificationBudget, type SchedulableTask } from "./nag";
 import type { Task } from "./types";
 
@@ -23,6 +23,14 @@ const NAG_ID_SEPARATOR = ":";
  */
 export const PRE_ALARM_SLOT = "pre";
 
+/**
+ * Rounds' slot marker (plan §3.4). Rounds fires get a fourth id segment —
+ * `nag:{taskId}:round:{index}` — rather than a new top-level prefix, so
+ * every existing `nag:`-prefix consumer (cancel-a-task, cancel-everything,
+ * `isNagNotificationId`) keeps working on Rounds fires with no changes.
+ */
+export const ROUNDS_SLOT = "round";
+
 export function buildNotificationId(taskId: string, index: number): string {
   return [NAG_ID_PREFIX, taskId, index].join(NAG_ID_SEPARATOR);
 }
@@ -32,20 +40,38 @@ export function buildPreAlarmId(taskId: string): string {
   return [NAG_ID_PREFIX, taskId, PRE_ALARM_SLOT].join(NAG_ID_SEPARATOR);
 }
 
+/** Shares the `nag:{taskId}:` prefix so cancelling a task still clears everything. */
+export function buildRoundNotificationId(taskId: string, index: number): string {
+  return [NAG_ID_PREFIX, taskId, ROUNDS_SLOT, index].join(NAG_ID_SEPARATOR);
+}
+
 export function parseNotificationId(
   identifier: string
-): { taskId: string; index: number; preAlarm?: true } | null {
+): { taskId: string; index: number; preAlarm?: true; round?: true } | null {
   const parts = identifier.split(NAG_ID_SEPARATOR);
-  if (parts.length !== 3 || parts[0] !== NAG_ID_PREFIX) return null;
-  if (parts[2] === PRE_ALARM_SLOT) {
-    // Index 0 keeps every existing caller working: the pre-alarm belongs to the
-    // same task and precedes its first fire, so treating it as position zero is
-    // the honest answer for anything that only cares about ordering.
-    return { taskId: parts[1], index: 0, preAlarm: true };
+  if (parts[0] !== NAG_ID_PREFIX) return null;
+
+  if (parts.length === 3) {
+    const [, taskId, slot] = parts;
+    if (slot === PRE_ALARM_SLOT) {
+      // Index 0 keeps every existing caller working: the pre-alarm belongs to
+      // the same task and precedes its first fire, so treating it as position
+      // zero is the honest answer for anything that only cares about ordering.
+      return { taskId, index: 0, preAlarm: true };
+    }
+    const index = Number(slot);
+    if (!Number.isInteger(index) || index < 0) return null;
+    return { taskId, index };
   }
-  const index = Number(parts[2]);
-  if (!Number.isInteger(index) || index < 0) return null;
-  return { taskId: parts[1], index };
+
+  if (parts.length === 4 && parts[2] === ROUNDS_SLOT) {
+    const [, taskId, , indexPart] = parts;
+    const index = Number(indexPart);
+    if (!Number.isInteger(index) || index < 0) return null;
+    return { taskId, index, round: true };
+  }
+
+  return null;
 }
 
 export function isNagNotificationId(identifier: string): boolean {
@@ -128,6 +154,9 @@ export function planNagNotifications(
     priority: task.priority,
     snoozeCount: task.snoozeCount,
     leadTimeSeconds: task.leadTimeSeconds,
+    roundsIntervalSeconds: task.roundsIntervalSeconds,
+    roundsMaxCount: task.roundsMaxCount,
+    roundsDurationSeconds: task.roundsDurationSeconds,
   }));
 
   const bursts = allocateNotificationBudget(schedulable, {
@@ -175,6 +204,22 @@ export function planNagNotifications(
         fireAt,
         title: copy.title,
         body: copy.body,
+      });
+    });
+
+    /*
+     * Rounds skips the escalation ladder entirely — it's a fixed schedule,
+     * not a response to being ignored, so the copy stays plain (§3.4's
+     * AutoComplete decision: schedule-based only, see describeRoundOccurrence).
+     */
+    burst.roundsFireTimes.forEach((fireAt, index) => {
+      planned.push({
+        identifier: buildRoundNotificationId(task.id, index),
+        taskId: task.id,
+        index,
+        fireAt,
+        title: task.title,
+        body: describeRoundOccurrence(index),
       });
     });
   }

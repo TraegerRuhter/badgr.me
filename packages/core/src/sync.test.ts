@@ -27,6 +27,9 @@ function makeTask(id: string, updatedAt: string, overrides: Partial<Task> = {}):
     deletedAt: null,
     snoozeCount: 0,
     leadTimeSeconds: null,
+    roundsIntervalSeconds: null,
+    roundsMaxCount: null,
+    roundsDurationSeconds: null,
     ...overrides,
   };
 }

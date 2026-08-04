@@ -45,6 +45,9 @@ export function makeTask(overrides: Partial<Task> = {}): Task {
     deletedAt: null,
     snoozeCount: 0,
     leadTimeSeconds: null,
+    roundsIntervalSeconds: null,
+    roundsMaxCount: null,
+    roundsDurationSeconds: null,
     ...overrides,
   };
 }
