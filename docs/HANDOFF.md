@@ -269,6 +269,27 @@ churns every import for zero user value.
 - **Run `pnpm install` at the repo root first.** The sandbox may arrive with a
   partial install, which produces phantom `TS2307: Cannot find module` errors in
   packages whose `node_modules` is missing. They are not real type errors.
+- **A partial install also *hides* real errors, and `pnpm install` will not tell
+  you.** It reports "Already up to date" against the lockfile while the tree is
+  missing packages, and a `tsc` run that never loads a `.d.ts` cannot fail on it.
+  This is how a green local `pnpm -r typecheck` and a red CI coexist. When CI
+  disagrees with you, reproduce in a clean tree before doubting CI:
+
+  ```bash
+  git clone --shared . /tmp/repro && cd /tmp/repro
+  pnpm install --frozen-lockfile && pnpm -r typecheck
+  ```
+
+  The store is local, so it takes seconds.
+- **`@types/node` is pinned to one major by a `pnpm.overrides` entry in the root
+  `package.json`. Don't remove it.** `apps/web` declares `^24`, while vitest's
+  open peer range pulled a second major in transitively. Two majors means two
+  bundled `undici-types`, so `fetch`'s `RequestInit.signal` and
+  `new AbortController().signal` come from different declarations of
+  `AbortSignal` and refuse to unify —
+  `Property 'onabort' is missing in type 'AbortSignal' but required in type
+  'AbortSignal'`, which reads like nonsense until you know there are two.
+  Dependabot can reintroduce this by bumping one and not the other.
 - **Tests use `TEST_KDF`** (`m: 64, t: 1`), not `DEFAULT_KDF`. Real Argon2id
   parameters take ~830 ms per call and would make the suite unusable. A separate
   test asserts `DEFAULT_KDF` hasn't changed, so speeding up tests can't quietly
