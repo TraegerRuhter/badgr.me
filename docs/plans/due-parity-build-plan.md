@@ -1,7 +1,8 @@
 # Build plan: reminder-editing parity with Due
 
-**Status:** Phases 1–3 built and merged-ready (PR #38); Phase 4 is next and
-needs a go-ahead on its schema change. Derived from a 90-second screen recording
+**Status:** Phases 1–4 built (1–3 merged as #38, Phase 4 in PR #39). The
+canonical-format question that blocked Phase 4 is **resolved** — see §9.4, and
+§6's Phase 4 entry for the mechanics. Derived from a 90-second screen recording
 of Due for iOS (§1). Section numbers here are referenced from code comments —
 cite them rather than restating the reasoning inline.
 
@@ -305,7 +306,7 @@ Flow inventory taken before the restructure (the gate's "before"):
 Flows 2, 3 and 8 gain one tap (the More-options disclosure). Everything else is
 unchanged, and the default view drops from fourteen controls to six.
 
-**Phase 4 — Pre-alarm lead time. NEXT — needs a go-ahead.** Adds
+**Phase 4 — Pre-alarm lead time. DONE.** Adds
 `Task.leadTimeSeconds` (nullable). Per-task snooze is **deferred**: §9.3.2
 questions whether it earns a permanent sync-payload field given the global
 setting already exists and badgr is single-user. Don't bundle the two.
@@ -333,51 +334,30 @@ Design note settled in advance: schedule the **burst before the pre-alarm** when
 budget is tight. If only one slot is left, the notification at the actual fire
 time is worth more than the heads-up before it.
 
-#### BLOCKER — any new `Task` field collides with the BDGR1 encrypted format
+#### RESOLVED — the vault format now grows without a version bump
 
-Found by building Phase 4 to completion and running the suite. **This is not
-specific to lead time; it applies to every future field on `Task`,** so read it
-before planning Phases 5 or 6 too.
+Adding any field to `Task` used to break the BDGR1 payload: `canonical.ts`
+wrote a fixed key list and `parseNdjson` rejected a row missing any of them, so
+adding a key made existing vaults unreadable while omitting it made encrypted
+file sync silently disagree with Supabase sync.
 
-`packages/crypto/src/canonical.ts` serialises a `Task` with a **fixed key list**
-that is part of the on-disk format, and `parseNdjson` throws
-`Missing field "<key>"` for anything absent. That produces a fork with no
-free option:
+**The key list is now split.** `V1_KEYS` stay mandatory on read; `LATER_KEYS`
+are optional and backfilled from `LATER_DEFAULTS`. Writing always emits
+everything. So an old snapshot still opens, and a new snapshot still opens in a
+client that predates the field, because it ignores the key it does not know.
 
-| Choice | Consequence |
-| --- | --- |
-| Add the key to `TASK_KEYS` | **Every existing vault becomes unreadable** — old snapshots lack the field, so `parseNdjson` throws |
-| Leave it out | Encrypted file sync **silently drops** the field, while Supabase sync carries it — the two sync paths disagree |
+**Phases 5 and 6 are therefore unblocked.** To add a field: append it to
+`LATER_KEYS`, give it a default meaning "never set", and regenerate the vectors
+— see the rules in `vectors.test.ts` before doing that last part.
 
-`canonical.ts` states the intended remedy in its own header ("adding a Task
-field means adding it here and bumping the format version"), and
-`docs/HANDOFF.md` is explicit that a failing `vectors.test.ts` means bumping
-`FORMAT_VERSION` and writing a migration rather than pasting new bytes.
+This overrode a note in `canonical.ts` and another in `HANDOFF.md` that both
+said to bump `FORMAT_VERSION`. Those predated anyone trying to add a field; a
+version bump would make new snapshots unreadable to un-updated clients, which is
+a hard cutover to buy nothing for a field that is optional by construction.
 
-So Phase 4 needs a format decision first. Three candidates:
-
-1. **Bump `FORMAT_VERSION` to 2, teach `decodeHeader` to accept 1 and 2, and
-   backfill on read.** The documented path. Costs a version bump and a
-   migration, and regenerated vectors.
-2. **Make reads tolerant of trailing keys** — split `TASK_KEYS` into a required
-   v1 core plus later-added keys backfilled to `null` on read. No version bump,
-   old vaults stay readable, and new vaults still open in old clients (the extra
-   key rides along unused). Protobuf's approach. Still changes canonical bytes
-   for new writes, so vectors must be regenerated deliberately.
-3. **Freeze `Task` as the sync payload** and put UI-only fields somewhere that
-   isn't synced. Cheapest now, but pushes the problem into Phase 5.
-
-My read is (2), because it keeps old and new clients mutually readable and
-avoids a version bump that buys nothing here — but it touches persisted,
-encrypted user data and the repo has a written rule pointing at (1), so it is
-the owner's call, not an implementation detail.
-
-**The Phase 4 code itself is done and mechanical** — types, budget reservation,
-pre-alarm id and copy, the SQLite v3 migration, the web store, the Supabase row
-mapping and its SQL migration, and every fixture. It is stashed on the branch as
-`Phase 4 lead-time WIP — blocked on BDGR1 canonical format decision`
-(`git stash list`). Redoing it from scratch is ~20 minutes; the decision above is
-the only real work left.
+`compat.test.ts` is what makes this safe rather than merely convenient: it seals
+a genuine v1-shaped envelope and reads it back. If that suite ever fails, the
+tolerant-read design has failed and the version bump becomes correct after all.
 
 **Phase 5 — Intra-day recurrence (badgr's DayMinder).** §3.4. New fields for
 interval, and a count-or-duration cap. AutoComplete semantics are the hard part:
@@ -482,6 +462,41 @@ two. One function, `formatDuration`, and §7's boundary tests pin it.
    one more field on every sync payload.
 3. **Melody/Sound/Alert Message** are listed in §3.2 but excluded from §0.
    Revisit only if per-task sound becomes a real request.
+
+### 9.4 How the encrypted format grows — RESOLVED
+
+Adding a field to `Task` collided with the BDGR1 payload, which blocked Phases
+4, 5 and 6 at once. Three candidates were on the table: bump `FORMAT_VERSION`
+and migrate; make reads tolerant of missing later keys; or freeze `Task` as the
+sync payload and keep new fields out of sync entirely.
+
+**Chosen: tolerant reads.** `canonical.ts` splits its key list into `V1_KEYS`
+(mandatory on read) and `LATER_KEYS` (optional, backfilled from
+`LATER_DEFAULTS`). Writes always emit everything. Old snapshots open in new
+clients, and new snapshots open in old clients, which is the property a version
+bump cannot give you.
+
+Rejected the version bump because it forces a hard cutover — every client must
+update before any client may write — and it buys nothing for a field that is
+optional by construction. Rejected freezing `Task` because it only moves the
+problem to Phase 5, which needs synced fields.
+
+**This overrode a written rule.** `canonical.ts`'s own header and `HANDOFF.md`
+both said a failing `vectors.test.ts` means bumping the version, not
+regenerating vectors. The vectors were regenerated once, deliberately, with the
+reason recorded in `vectors.test.ts`'s doc comment. The rule was written before
+anyone had tried to add a field; it assumed a format change always breaks
+compatibility, and tolerant reads are the case where it doesn't.
+
+`compat.test.ts` is what makes that safe rather than merely convenient: it seals
+a genuine v1-shaped envelope — v1 keys only, real gzip, real GCM header — and
+proves it still opens with the new field backfilled. **If that suite ever fails,
+the tolerant-read design has failed and the version bump becomes correct after
+all.**
+
+To add a field: append to `LATER_KEYS`, give it a `LATER_DEFAULTS` entry meaning
+"never set", and read the rules at the top of `vectors.test.ts` before
+regenerating anything.
 
 ---
 

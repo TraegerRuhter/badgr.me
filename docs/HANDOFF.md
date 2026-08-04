@@ -8,7 +8,7 @@ build plan for whichever workstream you've been asked to pick up.
 | Workstream | Plan | State |
 | --- | --- | --- |
 | Encrypted portable sync | `docs/plans/portable-sync-build-plan.md` | Phases 1–3 **merged** (#35, #36). §7 recovery sheet + passphrase change in **PR #39**. Phase 3's gate still needs physical devices |
-| Reminder-editing parity with Due | `docs/plans/due-parity-build-plan.md` | Phases 1–3 **merged** (#38). Phase 4 written but **blocked on a format decision** — see below |
+| Reminder-editing parity with Due | `docs/plans/due-parity-build-plan.md` | Phases 1–4 built (1–3 merged as #38, Phase 4 in **PR #39**). Phases 5–6 unblocked |
 
 ### Start here, whatever you were asked to do
 
@@ -17,37 +17,40 @@ build plan for whichever workstream you've been asked to pick up.
    alone and broke on merge, because a Dependabot typings bump tightened
    `BufferSource` under code written against the older types. Branch-level CI
    cannot see that class of failure, so check rather than assume. Baseline is
-   **320 tests**.
+   **347 tests**.
 2. **Run `pnpm install` at the repo root.** A partial sandbox install produces
    phantom `TS2307: Cannot find module` errors that are not real.
 3. **Then read the plan for your workstream.** Both are self-contained and their
    section numbers are cited from code comments.
 
-### The one decision blocking the most work
+### The format question is settled
 
-Adding **any** new field to `Task` collides with the BDGR1 encrypted format.
-`canonical.ts` serialises with a fixed key list and `parseNdjson` rejects a row
-missing any of them — so adding a key makes existing vaults unreadable, while
-omitting it makes encrypted file sync silently disagree with Supabase sync.
+Adding a field to `Task` used to break the BDGR1 encrypted payload. It no longer
+does: `canonical.ts` splits its key list into a mandatory v1 core and optional
+later keys that are backfilled on read. Old snapshots still open; new snapshots
+still open in older clients.
 
-This blocks Due-parity Phases 4, 5 and 6, all of which add fields. The full
-analysis and three candidate fixes are in the Due-parity plan's Phase 4 section.
-The Phase 4 implementation itself is finished and **stashed on the branch**
-(`git stash list`) pending the decision — it is a stash pop plus a two-line
-`canonical.ts` change once someone picks a direction.
+**To add a `Task` field:** append to `LATER_KEYS`, give it a default meaning
+"never set", and read the rules at the top of `vectors.test.ts` before
+regenerating anything. `compat.test.ts` is the guard — if it fails, the design
+has failed and a `FORMAT_VERSION` bump becomes the right answer.
 
-Do not decide this unilaterally. It touches persisted, encrypted user data, and
-`canonical.ts`'s own header points at a different answer than the one the
-analysis recommends.
+This deliberately overrode an older note in this file, and one in
+`canonical.ts`, that both said to bump `FORMAT_VERSION` rather than regenerate
+the vectors. Those notes predated anyone trying to add a field. The full
+reasoning, and the conditions under which the version bump becomes correct
+after all, are in `docs/plans/due-parity-build-plan.md` §9.4.
 
 ### Picking up the Due-parity work
 
 Go straight to its plan — it is self-contained, and its §1 explains how to
 regenerate the reference frames from the recording on branch `Vid`.
 
-Phases 1–3 are merged: the derived-label engine (`packages/core/src/describe.ts`),
-nag presets with live fire-time previews, and progressive disclosure in both
-editors. Phase 4 onward is blocked by the format decision above.
+Phases 1–4 are built: the derived-label engine (`packages/core/src/describe.ts`),
+nag presets with live fire-time previews, progressive disclosure in both editors,
+and the pre-alarm lead time. Phases 5 (intra-day recurrence) and 6 (categories)
+are specified and now unblocked — both add `Task` fields, which the format change
+above made routine.
 
 Two things to know before touching this:
 
@@ -270,9 +273,14 @@ churns every import for zero user value.
   parameters take ~830 ms per call and would make the suite unusable. A separate
   test asserts `DEFAULT_KDF` hasn't changed, so speeding up tests can't quietly
   weaken production.
-- **A failing `vectors.test.ts` is not flaky.** It means the on-disk format
-  changed and existing vaults can no longer be read. Bump `FORMAT_VERSION` and
-  write a migration — do not just paste in the new expected bytes.
+- **A failing `vectors.test.ts` is not flaky.** It means the bytes badgr writes
+  changed. Default to bumping `FORMAT_VERSION` and writing a migration — do not
+  just paste in the new expected bytes. **The one exception**, taken once and
+  documented in `vectors.test.ts`'s own doc comment: appending an optional key
+  that reads tolerantly changes what we *write* without changing what we can
+  *read*, so old vaults stay readable and no migration exists to write. Taking
+  that exception requires a `compat.test.ts` case proving a genuine old envelope
+  still opens. Reasoning in `docs/plans/due-parity-build-plan.md` §9.4.
 - **Playwright:** chromium is at `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`,
   the module at `/opt/node22/lib/node_modules/playwright/index.mjs`. Never run
   `playwright install`.
@@ -292,7 +300,7 @@ pnpm install
 pnpm -r typecheck && pnpm -r lint && pnpm -r test
 ```
 
-Current baseline — **320 tests**, all passing (was 192 before Phase 3):
+Current baseline — **347 tests**, all passing (was 192 before Phase 3):
 
 | Package | Tests |
 | --- | --- |
