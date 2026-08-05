@@ -1,12 +1,12 @@
 # Build plan: reminder-editing parity with Due
 
-**Status:** Phases 1–5 built (1–3 merged as #38, Phase 4 in PR #39, Phase 5 —
-Rounds — on branch `claude/due-parity-phase-5-rounds-ci1bpn`). The
-canonical-format question that blocked Phase 4 is **resolved** — see §9.4, and
-§6's Phase 4 entry for the mechanics; Phase 5 used the same mechanism for its
-own three fields. Derived from a 90-second screen recording of Due for iOS
-(§1). Section numbers here are referenced from code comments — cite them
-rather than restating the reasoning inline.
+**Status:** Phases 1–5 **merged** (1–3 as #38, Phase 4 as #39, Phase 5 — Rounds —
+as #40). Phase 6 (categories) is next and unblocked. The canonical-format
+question that blocked Phase 4 is **resolved** — see §9.4, and §6's Phase 4
+entry for the mechanics; Phase 5 used the same mechanism for its own three
+fields. Derived from a 90-second screen recording of Due for iOS (§1). Section
+numbers here are referenced from code comments — cite them rather than
+restating the reasoning inline.
 
 The goal is **not** to clone Due. It is to import the handful of interaction
 patterns Due gets right (§2) into badgr's existing model, using badgr's own

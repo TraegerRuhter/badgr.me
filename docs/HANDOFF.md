@@ -7,20 +7,18 @@ build plan for whichever workstream you've been asked to pick up.
 
 | Workstream | Plan | State |
 | --- | --- | --- |
-| Encrypted portable sync | `docs/plans/portable-sync-build-plan.md` | Phases 1–3 **merged** (#35, #36). §7 recovery sheet + passphrase change in **PR #39**. Phase 3's gate still needs physical devices |
-| Reminder-editing parity with Due | `docs/plans/due-parity-build-plan.md` | Phases 1–5 built (1–3 merged as #38, Phase 4 in **PR #39**, Phase 5/Rounds on `claude/due-parity-phase-5-rounds-ci1bpn`). Phase 6 unblocked |
+| Encrypted portable sync | `docs/plans/portable-sync-build-plan.md` | Phases 1–3 + §7 recovery sheet/passphrase change all **merged** (#35, #36, #39). Phase 3's gate still needs physical devices |
+| Reminder-editing parity with Due | `docs/plans/due-parity-build-plan.md` | Phases 1–5 **merged** (#38, #39, #40). Phase 6 unblocked |
 
 ### Start here, whatever you were asked to do
 
-1. **`main` is red, and has been since #37 merged.** Last green `main` is
-   `d83f914`. **PR #39 contains both fixes** (`b195b0e`, `79d0042`), so if it
-   has landed by the time you read this, `main` is fine and this note is
-   history — check before assuming either way. If it hasn't, branch from #39's
-   head rather than `main`, or you inherit a broken typecheck.
-
-   Both breakages came from one Dependabot bump, and neither was visible to
-   branch-level CI, because each contributing PR passed alone and only the
-   *merge* fails. Expect this class of failure again; check rather than assume.
+1. **`main` is green.** It was red from #37 through #39 — two independent
+   typecheck breakages from one Dependabot bump, invisible to branch-level CI
+   because each contributing PR passed alone and only the *merge* failed. Both
+   fixes (`b195b0e`, `79d0042`) landed in #39, which is merged. Worth
+   remembering as a failure class — a passing PR doesn't prove a passing
+   merge — but there is nothing to route around right now. Verify rather than
+   trust this note: it goes stale the moment another red merge happens.
 2. **Run `pnpm install` at the repo root, then verify in a clean clone.** A
    partial sandbox install produces phantom `TS2307: Cannot find module` errors
    that are not real — *and* hides real errors, silently. See the gotchas
@@ -52,7 +50,7 @@ after all, are in `docs/plans/due-parity-build-plan.md` §9.4.
 Go straight to its plan — it is self-contained, and its §1 explains how to
 regenerate the reference frames from the recording on branch `Vid`.
 
-Phases 1–5 are built: the derived-label engine (`packages/core/src/describe.ts`),
+Phases 1–5 are merged: the derived-label engine (`packages/core/src/describe.ts`),
 nag presets with live fire-time previews, progressive disclosure in both editors,
 the pre-alarm lead time, and Rounds (intra-day recurrence, plan §3.4). Phase 6
 (categories) is specified and unblocked — it adds `Task` fields too, which the
@@ -80,11 +78,11 @@ Two things to know before touching this:
 Phases 1–3 are merged and Phase 3's gate still needs physical devices — the
 checklist is at the bottom of this file.
 
-**PR #39 adds the §7 recovery paths** and is the most recent work: a recovery
-sheet (Crockford base32 with a checksum, deviating from the plan's base64 for
-transcription reasons recorded in `recovery.ts`), unlocking with that code, and
-passphrase change by re-wrapping the data key. Before it, forgetting a
-passphrase meant permanently unreadable snapshots.
+**#39 added the §7 recovery paths** and is the most recent work, now merged: a
+recovery sheet (Crockford base32 with a checksum, deviating from the plan's
+base64 for transcription reasons recorded in `recovery.ts`), unlocking with
+that code, and passphrase change by re-wrapping the data key. Before it,
+forgetting a passphrase meant permanently unreadable snapshots.
 
 Two API shapes there are deliberate and worth not "simplifying":
 `unlockVaultRecord` exists so rotating a passphrase does not demand a snapshot
@@ -125,16 +123,17 @@ Phase 4 — S3/WebDAV adapters against the §5 storage contract.
 
 ## The work in git
 
-Branch: **`claude/alarmed-tech-spec-f697nr`** (all work goes here — do not push
-elsewhere without asking).
+`claude/alarmed-tech-spec-f697nr` carried this workstream through Phase 3 and
+the §7 recovery/passphrase work; all of it is merged now (#35, #36, #39), so
+that branch is done — **start a fresh branch off current `main`** for whatever
+comes next (Phase 4's storage adapters, most likely), rather than stacking on
+already-merged history. Same restart pattern the old branch itself used when
+#35 landed.
 
-The groundwork (build plan, `packages/crypto`) merged to `main` as **#35**, so
-`main` is at `df2a433` and the branch was restarted from it rather than stacked
-on already-merged history. It now carries the Phase 3 work.
-
-**PR policy:** do not open one unless the user asks. They asked once, for the
-memoization work (#33, merged), and were happy to have it merged straight
-away — but treat that as per-change permission, not standing.
+**PR policy:** do not open one unless the user asks. Once opened, though,
+merging is a normal part of finishing the work when asked — see the
+due-parity workstream's #38/#39/#40 history for the shape of it: verify green
+in a clean clone, open the PR, wait for CI, merge.
 
 ---
 
