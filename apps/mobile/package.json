@@ -10,7 +10,7 @@
     "@alarmed/ui": "workspace:*",
     "@expo/metro-runtime": "~56.0.14",
     "@react-native-async-storage/async-storage": "2.2.0",
-    "@react-native-community/datetimepicker": "9.1.0",
+    "@react-native-community/datetimepicker": "9.2.0",
     "expo": "~56.0.12",
     "expo-crypto": "~56.0.4",
     "expo-document-picker": "~56.0.4",
@@ -22,7 +22,7 @@
     "expo-status-bar": "~56.0.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "react-native": "0.86.2",
+    "react-native": "0.87.1",
     "react-native-svg": "15.15.5",
     "react-native-url-polyfill": "^2.0.0",
     "react-native-web": "~0.21.0"
