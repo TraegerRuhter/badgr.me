@@ -15,7 +15,7 @@
   "dependencies": {
     "@alarmed/core": "workspace:*",
     "openai": "^6.45.0",
-    "zod": "^3.23.8"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "typescript": "^5.5.4",
