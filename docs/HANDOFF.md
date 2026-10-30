@@ -61,7 +61,7 @@ one is marked done" mode — see the build plan's Phase 5 entry in §6 and its
 §9.3 point 4. Only the schedule-based mode shipped; there's no toggle in
 either editor for the other one.
 
-Two things to know before touching this:
+Three things to know before touching this:
 
 - **`scripts/shots.mjs`** renders the web PWA at phone size with seeded fixtures
   and a frozen clock. Build *without* `CI=true` first. It is how the screenshots
@@ -72,6 +72,17 @@ Two things to know before touching this:
   the schema, so the app boots to an empty list and the editor is unreachable.
   Mobile parity currently rests on typecheck plus the shared-source guard in
   `apps/web/src/labelParity.test.ts`, not on anyone having looked at it.
+- **`.claude/skills/video-to-ui`** turns a screen recording into a design
+  report and screen inventory with frame ranges. It is vendored from
+  `mmohajer9/video-to-ui` at `795d851` (MIT); ffmpeg must be installed first
+  (`apt-get install -y --no-install-recommends ffmpeg`). Use mode 2 (analyze)
+  for reference recordings, or mode 3 to compare against our code. Mode 4
+  scaffolds a separate web app, which this repo has no use for. Its notes are
+  strong on screens and layout but weak on copy and timing, so read wording
+  and notification behaviour off the frames yourself. Tested on the Due
+  recording: it found every screen in plan §3 and corrected §3.5's timestamp.
+  Each 10-frame batch costs about 75k tokens, so for long clips lower the fps
+  or use `--scene`.
 
 ### Picking up the encrypted-sync work
 
