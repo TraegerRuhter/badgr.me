@@ -174,7 +174,10 @@ Intra-day recurrence. Distinct from Repeat.
     as completed."
 - An `(i)` button in the nav bar for the long-form explanation.
 
-### 3.5 Past-due affordance (observed ~12–14 s)
+### 3.5 Past-due affordance (observed ~24–28 s)
+
+Earlier drafts said ~12–14 s; at that point the value is still black and the
+chip still reads `Today`. The state first appears at 1 fps frames 025–029.
 
 When the selected time is in the past, two things change together:
 
